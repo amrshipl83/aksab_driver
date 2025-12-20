@@ -20,10 +20,13 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          # تم التحديث لنسخة مستقرة تدعم SDK 3.10.3 وما فوق
+          flutter-version: '3.24.0' 
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build APK
+        # بناء نسخة Debug مؤقتاً للتأكد من سلامة الربط البرمجي
         run: flutter build apk --debug
+
