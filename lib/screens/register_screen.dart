@@ -10,141 +10,143 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
-  String _selectedRole = 'free_driver'; // القيمة الافتراضية للمندوب الحر
+  String _selectedRole = 'free_driver'; // المندوب الحر هو الافتراضي الآن
   bool _isLoading = false;
 
-  // المتحكمات (Controllers) لجمع البيانات
+  // المتحكمات
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController(); // سنستخدمه للميل الذكي
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  // دالة التعامل مع التسجيل وحفظ البيانات في مجموعات الانتظار
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isLoading = true);
 
     try {
-      // 1. إنشاء حساب في Firebase Auth
+      // 💡 تطبيق "الميل الذكي": تحويل رقم الهاتف لبريد إلكتروني مقبول في Firebase
+      String smartEmail = "${_phoneController.text.trim()}@aksab.com";
+
+      // 1. إنشاء الحساب في Firebase Auth
       UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
+        email: smartEmail,
         password: _passwordController.text,
       );
 
-      // 2. تحديد مجموعة الانتظار بناءً على الدور (Role) كما اتفقنا
+      // 2. منطق توزيع المجموعات (نفس سلوك الـ HTML القديم + المندوب الحر)
       String collectionName;
       if (_selectedRole == 'free_driver') {
-        collectionName = 'pendingFreeDrivers'; // مجموعة انتظار المندوب الحر
+        collectionName = 'pendingFreeDrivers'; // المندوب الحر له مجموعته الخاصة
       } else if (_selectedRole == 'delivery_rep') {
-        collectionName = 'pendingReps'; // مجموعة انتظار مندوب التحصيل
+        collectionName = 'pendingReps'; // الموظف العادي
       } else {
-        collectionName = 'pendingManagers'; // مجموعة المشرفين والمديرين
+        collectionName = 'pendingManagers'; // مشرف أو مدير (كلاهما في المانجر)
       }
 
-      // 3. حفظ البيانات في Firestore مع حالة "pending"
+      // 3. حفظ البيانات (نفس الحقول القديمة لضمان توافق صفحة الإدارة)
       await FirebaseFirestore.instance.collection(collectionName).doc(userCredential.user!.uid).set({
         'fullname': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
+        'email': smartEmail, // الميل الذكي
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
-        'role': _selectedRole,
-        'status': 'pending', // الحالة الافتراضية عند التسجيل
+        'role': _selectedRole, // القيمة الفعلية (delivery_manager, delivery_supervisor.. إلخ)
+        'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
         'uid': userCredential.user!.uid,
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("✅ تم التسجيل بنجاح، في انتظار موافقة الإدارة.")),
-      );
-      
-      // يمكن هنا توجيهه لصفحة تسجيل الدخول أو شاشة "بانتظار الموافقة"
+      _showSuccessDialog();
     } on FirebaseAuthException catch (e) {
-      String message = "حدث خطأ في التسجيل";
-      if (e.code == 'email-already-in-use') message = "البريد الإلكتروني مستخدم بالفعل";
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("❌ $message")));
+      _showMsg("خطأ: ${e.message}");
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text("إنشاء حساب مندوب", style: TextStyle(color: Colors.black)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-      ),
-      body: _isLoading 
-          ? Center(child: CircularProgressIndicator(color: Color(0xFF43B97F)))
-          : SingleChildScrollView(
-              padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    Icon(Icons.delivery_dining, size: 50.sp, color: Color(0xFF43B97F)),
-                    SizedBox(height: 3.h),
-                    
-                    _buildInput(_nameController, "الاسم الكامل", Icons.person),
-                    _buildInput(_emailController, "البريد الإلكتروني", Icons.email, type: TextInputType.emailAddress),
-                    _buildInput(_phoneController, "رقم الهاتف", Icons.phone, type: TextInputType.phone),
-                    _buildInput(_addressController, "العنوان بالتفصيل", Icons.location_on),
-                    _buildInput(_passwordController, "كلمة المرور", Icons.lock, isPass: true),
-
-                    SizedBox(height: 2.h),
-                    Align(alignment: Alignment.centerRight, child: Text("نوع الحساب:", style: TextStyle(fontWeight: FontWeight.bold))),
-                    
-                    _roleRadio("مندوب توصيل حر", "free_driver"),
-                    _roleRadio("مندوب تحصيل (موظف)", "delivery_rep"),
-                    _roleRadio("مشرف/مدير تحصيل", "delivery_manager"),
-
-                    SizedBox(height: 4.h),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFF43B97F),
-                        minimumSize: Size(100.w, 7.h),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: _handleRegister,
-                      child: Text("تسجيل الحساب", style: TextStyle(color: Colors.white, fontSize: 13.sp)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+  // دالة لاختيار الأدوار تفرق بين المشرف والمدير داخلياً
+  Widget _roleOption(String title, String value) {
+    return RadioListTile(
+      title: Text(title, style: TextStyle(fontSize: 10.sp)),
+      value: value,
+      groupValue: _selectedRole,
+      onChanged: (v) => setState(() => _selectedRole = v.toString()),
+      activeColor: Color(0xFF43B97F),
     );
   }
 
-  Widget _buildInput(TextEditingController controller, String label, IconData icon, {bool isPass = false, TextInputType type = TextInputType.text}) {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _isLoading 
+        ? Center(child: CircularProgressIndicator(color: Color(0xFF43B97F)))
+        : SingleChildScrollView(
+            padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 8.h),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  Text("تسجيل حساب جديد", style: TextStyle(fontSize: 18.sp, color: Color(0xFF43B97F), fontWeight: FontWeight.bold)),
+                  SizedBox(height: 4.h),
+                  _buildInput(_nameController, "الاسم الكامل", Icons.person),
+                  _buildInput(_phoneController, "رقم الهاتف (سيستخدم للدخول)", Icons.phone, type: TextInputType.phone),
+                  _buildInput(_addressController, "العنوان بالتفصيل", Icons.map),
+                  _buildInput(_passwordController, "كلمة المرور", Icons.lock, isPass: true),
+                  
+                  Divider(height: 4.h),
+                  Align(alignment: Alignment.centerRight, child: Text("اختار نوع الحساب:", style: TextStyle(fontWeight: FontWeight.bold))),
+                  
+                  // الأدوار الأربعة المتاحة
+                  _roleOption("مندوب توصيل حر", "free_driver"),
+                  _roleOption("مندوب تحصيل (موظف)", "delivery_rep"),
+                  _roleOption("مشرف تحصيل", "delivery_supervisor"),
+                  _roleOption("مدير تحصيل", "delivery_manager"),
+
+                  SizedBox(height: 3.h),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Color(0xFF43B97F),
+                      minimumSize: Size(100.w, 7.h),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _handleRegister,
+                    child: Text("تسجيل", style: TextStyle(color: Colors.white, fontSize: 13.sp)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
+  }
+
+  // --- دوال مساعدة للواجهة ---
+  Widget _buildInput(TextEditingController ctrl, String label, IconData icon, {bool isPass = false, TextInputType type = TextInputType.text}) {
     return Padding(
       padding: EdgeInsets.only(bottom: 2.h),
       child: TextFormField(
-        controller: controller,
+        controller: ctrl,
         obscureText: isPass,
         keyboardType: type,
         textAlign: TextAlign.right,
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: Icon(icon, color: Color(0xFF43B97F)),
+          suffixIcon: Icon(icon, color: Color(0xFF43B97F)),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         ),
-        validator: (v) => v!.isEmpty ? "هذا الحقل مطلوب" : null,
+        validator: (v) => v!.isEmpty ? "مطلوب" : null,
       ),
     );
   }
 
-  Widget _roleRadio(String title, String value) {
-    return RadioListTile(
-      title: Text(title, textAlign: TextAlign.right),
-      value: value,
-      groupValue: _selectedRole,
-      activeColor: Color(0xFF43B97F),
-      onChanged: (val) => setState(() => _selectedRole = val.toString()),
-    );
+  void _showMsg(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text("تم بنجاح"),
+        content: Text("تم إرسال طلبك للإدارة. يمكنك الدخول برقم هاتفك بعد الموافقة."),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text("حسناً"))],
+      ),
+    ).then((_) => Navigator.pop(context));
   }
 }
