@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:sizer/sizer.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+// 💡 استيراد الشاشة المخصصة للمندوب الحر
+import 'free_driver_home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -9,13 +11,11 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // تم تغيير اسم المتحكم ليعبر عن رقم الهاتف
   final _phoneController = TextEditingController(); 
   final _passwordController = TextEditingController();
   bool _isLoading = false;
 
   Future<void> _handleLogin() async {
-    // التأكد من إدخال البيانات
     if (_phoneController.text.isEmpty || _passwordController.text.isEmpty) {
       _showError("من فضلك أدخل رقم الهاتف وكلمة المرور");
       return;
@@ -24,10 +24,8 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 💡 تحويل رقم الهاتف إلى "الميل الذكي" للمصادقة
       String smartEmail = "${_phoneController.text.trim()}@aksab.com";
 
-      // 1. محاولة تسجيل الدخول باستخدام الميل المولد
       UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: smartEmail,
         password: _passwordController.text,
@@ -36,7 +34,6 @@ class _LoginScreenState extends State<LoginScreen> {
       String uid = userCredential.user!.uid;
       Map<String, dynamic>? userData;
 
-      // 2. البحث في المجموعات الدائمة (نفس المنطق السابق)
       var repSnap = await FirebaseFirestore.instance.collection('deliveryReps').doc(uid).get();
       var freeSnap = await FirebaseFirestore.instance.collection('freeDrivers').doc(uid).get();
       var managerSnap = await FirebaseFirestore.instance.collection('managers').doc(uid).get();
@@ -49,11 +46,19 @@ class _LoginScreenState extends State<LoginScreen> {
         userData = managerSnap.data();
       }
 
-      // 3. التحقق من حالة الحساب (يجب أن يكون approved من الإدارة)
       if (userData != null && userData['status'] == 'approved') {
-        _navigateToHome(userData['role'] ?? 'user');
+        // 🎯 التوجيه الذكي بناءً على الدور (Role)
+        if (userData['role'] == 'free_driver') {
+          // إذا كان مندوب حر، نفتح شاشته الخاصة ونغلق شاشة الدخول
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const FreeDriverHomeScreen()),
+          );
+        } else {
+          // الأدوار الأخرى (مشرف، مدير، مندوب موظف) يتم التعامل معها هنا لاحقاً
+          _navigateToHome(userData['role'] ?? 'user');
+        }
       } else {
-        // إذا لم يكن approved أو غير موجود، يتم تسجيل الخروج فوراً
         await FirebaseAuth.instance.signOut();
         _showError("❌ حسابك قيد المراجعة أو غير مفعل.");
       }
@@ -86,7 +91,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 SizedBox(height: 4.h),
                 Text("تسجيل الدخول", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                 SizedBox(height: 5.h),
-                // تم تعديل التسمية التوضيحية ونوع لوحة المفاتيح
                 _buildInput(_phoneController, "رقم الهاتف", Icons.phone, type: TextInputType.phone), 
                 _buildInput(_passwordController, "كلمة المرور", Icons.lock, isPass: true),
                 SizedBox(height: 4.h),
@@ -127,3 +131,4 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
