@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sizer/sizer.dart';
+// سنفترض أن هذه هي الصفحة التي سننشئها للرادار
+import 'available_orders_screen.dart'; 
 
 class FreeDriverHomeScreen extends StatefulWidget {
   const FreeDriverHomeScreen({super.key});
@@ -11,10 +13,10 @@ class FreeDriverHomeScreen extends StatefulWidget {
 }
 
 class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
-  bool isOnline = false; // حالة المندوب (فاتح أو قافل)
-  int _selectedIndex = 0; // التنقل بين الأيقونات في الشريط السفلي
+  bool isOnline = false;
+  int _selectedIndex = 0; // التحكم في التنقل
 
-  // تحديث حالة الاتصال في الفايربيز
+  // دالة تحديث الحالة
   void _toggleOnlineStatus(bool value) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
@@ -25,40 +27,61 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
       setState(() => isOnline = value);
       
       String msg = value ? "أنت الآن متصل وتستقبل الطلبات" : "تم تسجيل الخروج من وضع العمل";
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg, style: TextStyle(fontSize: 12.sp), textAlign: TextAlign.center))
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // قائمة الصفحات للتنقل
+    final List<Widget> _pages = [
+      _buildDashboardContent(), // صفحة الرئيسية (الإحصائيات)
+      const AvailableOrdersScreen(), // صفحة الرادار (الطلبات المتاحة)
+      const Center(child: Text("سجل الطلبات قريباً")), // صفحة طلباتي
+      const Center(child: Text("المحفظة قريباً")), // صفحة المحفظة
+    ];
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      // 1. الشريط الجانبي (Drawer)
       drawer: _buildSidebar(context),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 1,
-        title: Text("لوحة التحكم", style: TextStyle(color: Colors.black, fontSize: 15.sp)),
+        title: Text("لوحة التحكم", 
+          style: TextStyle(color: Colors.black, fontSize: 18.sp, fontWeight: FontWeight.bold)),
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.black),
+        iconTheme: IconThemeData(color: Colors.black, size: 22.sp),
         actions: [
-          // زر الـ Online/Offline في الـ AppBar ليكون واضحاً
-          Switch(
-            value: isOnline,
-            activeColor: Colors.green,
-            onChanged: _toggleOnlineStatus,
+          Transform.scale(
+            scale: 1.2, // تكبير زر الـ Switch ليكون أوضح
+            child: Switch(
+              value: isOnline,
+              activeColor: Colors.green,
+              onChanged: _toggleOnlineStatus,
+            ),
           ),
+          SizedBox(width: 3.w),
         ],
       ),
-      // 2. محتوى الشاشة (يتغير حسب الحالة)
-      body: _buildDashboardContent(),
-      // 3. شريط التنقل السفلي (Bottom Navigation Bar)
+      
+      // هنا المحتوى يتغير بناءً على الـ Index المختار
+      body: _pages[_selectedIndex],
+
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
         selectedItemColor: Colors.orange[900],
-        unselectedItemColor: Colors.grey,
+        unselectedItemColor: Colors.grey[600],
         type: BottomNavigationBarType.fixed,
+        selectedLabelStyle: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.bold),
+        unselectedLabelStyle: TextStyle(fontSize: 10.sp),
+        iconSize: 24.sp, // تكبير الأيقونات في الشريط السفلي
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "الرئيسية"),
           BottomNavigationBarItem(icon: Icon(Icons.radar), label: "الرادار"),
@@ -69,33 +92,47 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
     );
   }
 
+  // --- محتوى الرئيسية (الإحصائيات) ---
   Widget _buildDashboardContent() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          // كارت الحالة الحالي
+          // كارت الحالة (كبير وواضح)
           Container(
-            padding: const EdgeInsets.all(20),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 25, horizontal: 20),
             decoration: BoxDecoration(
               color: isOnline ? Colors.green[50] : Colors.red[50],
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: isOnline ? Colors.green : Colors.red),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: isOnline ? Colors.green : Colors.red, width: 2),
             ),
             child: Row(
               children: [
-                Icon(isOnline ? Icons.check_circle : Icons.do_not_disturb_on, 
-                     color: isOnline ? Colors.green : Colors.red),
-                const SizedBox(width: 15),
-                Text(
-                  isOnline ? "أنت متاح لاستلام الطلبات" : "أنت حالياً غير متصل بالخدمة",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.sp),
+                Icon(
+                  isOnline ? Icons.check_circle : Icons.do_not_disturb_on,
+                  color: isOnline ? Colors.green : Colors.red,
+                  size: 35.sp,
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Text(
+                    isOnline ? "أنت متاح لاستلام الطلبات" : "أنت حالياً غير متصل بالخدمة",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15.sp),
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          // إحصائيات سريعة
+          const SizedBox(height: 30),
+          
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text("إحصائياتك اليوم:", 
+              style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+          ),
+          const SizedBox(height: 15),
+          
           _buildQuickStats(),
         ],
       ),
@@ -105,13 +142,15 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
   Widget _buildQuickStats() {
     return GridView.count(
       shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       crossAxisCount: 2,
       crossAxisSpacing: 15,
       mainAxisSpacing: 15,
+      childAspectRatio: 1.1, // لضبط حجم الكروت
       children: [
-        _statCard("إجمالي الأرباح", "0.00 ج.م", Icons.monetization_on, Colors.blue),
-        _statCard("طلبات اليوم", "0", Icons.shopping_basket, Colors.orange),
-        _statCard("التقييم", "5.0", Icons.star, Colors.amber),
+        _statCard("أرباح اليوم", "0.00 ج.م", Icons.monetization_on, Colors.blue),
+        _statCard("طلبات منفذة", "0", Icons.shopping_basket, Colors.orange),
+        _statCard("تقييمك العام", "5.0", Icons.star, Colors.amber),
         _statCard("ساعات العمل", "0h", Icons.timer, Colors.purple),
       ],
     );
@@ -119,14 +158,18 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
 
   Widget _statCard(String title, String value, IconData icon, Color color) {
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 5, offset: Offset(0, 2))],
+      ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: color, size: 25.sp),
+          Icon(icon, color: color, size: 30.sp), // أيقونة كبيرة
           const SizedBox(height: 10),
-          Text(title, style: TextStyle(color: Colors.grey, fontSize: 10.sp)),
-          Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.sp)),
+          Text(title, style: TextStyle(color: Colors.grey[700], fontSize: 12.sp)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14.sp, color: Colors.black80)),
         ],
       ),
     );
@@ -139,29 +182,31 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
         children: [
           UserAccountsDrawerHeader(
             decoration: BoxDecoration(color: Colors.orange[800]),
-            accountName: const Text("المندوب الحر"),
-            accountEmail: Text(FirebaseAuth.instance.currentUser?.email ?? ""),
-            currentAccountPicture: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.person)),
+            accountName: Text("المندوب الحر", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold)),
+            accountEmail: Text(FirebaseAuth.instance.currentUser?.email ?? "", style: TextStyle(fontSize: 11.sp)),
+            currentAccountPicture: const CircleAvatar(
+              backgroundColor: Colors.white,
+              child: Icon(Icons.person, size: 40, color: Colors.orange),
+            ),
           ),
-          ListTile(
-            leading: const Icon(Icons.person),
-            title: const Text("الملف الشخصي"),
-            onTap: () {},
-          ),
-          ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text("إعدادات المركبة"),
-            onTap: () {},
-          ),
+          _sidebarItem(Icons.person, "الملف الشخصي"),
+          _sidebarItem(Icons.settings, "إعدادات المركبة"),
           const Divider(),
-          ListTile(
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text("تسجيل الخروج"),
-            onTap: () => FirebaseAuth.instance.signOut(),
-          ),
+          _sidebarItem(Icons.logout, "تسجيل الخروج", color: Colors.red, isLogout: true),
         ],
       ),
     );
   }
-}
 
+  Widget _sidebarItem(IconData icon, String title, {Color color = Colors.black80, bool isLogout = false}) {
+    return ListTile(
+      leading: Icon(icon, color: color, size: 20.sp),
+      title: Text(title, style: TextStyle(fontSize: 13.sp, color: color)),
+      onTap: () {
+        if (isLogout) {
+          FirebaseAuth.instance.signOut();
+        }
+      },
+    );
+  }
+}
