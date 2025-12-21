@@ -82,7 +82,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
-        final webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${point.latitude},${point.longitude}");
+        final webUri = Uri.parse("http://googleusercontent.com/maps.google.com/?q=${point.latitude},${point.longitude}");
         await launchUrl(webUri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
@@ -135,8 +135,8 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
                           points: _routePoints,
                           color: Colors.blue.withOpacity(0.7),
                           strokeWidth: 5,
-                          borderColor: Colors.white, // التعديل هنا
-                          borderStrokeWidth: 1.0,    // التعديل هنا
+                          borderColor: Colors.white,
+                          borderStrokeWidth: 1.0,
                         ),
                       ],
                     ),
@@ -151,7 +151,11 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
               ),
               Positioned(
                 bottom: 0, left: 0, right: 0,
-                child: _build3DControlPanel(status, pickup, dropoff, data['pickupAddress'], data['dropoffAddress']),
+                // ✅ تم إضافة SafeArea هنا لرفع الكارت عن أزرار النظام
+                child: SafeArea(
+                  top: false, 
+                  child: _build3DControlPanel(status, pickup, dropoff, data['pickupAddress'], data['dropoffAddress']),
+                ),
               ),
             ],
           );
@@ -181,16 +185,19 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
               Container(
                 padding: EdgeInsets.all(10.sp),
                 decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(15)),
-                child: Icon(Icons.map_outlined, color: Colors.blue[800], size: 20.sp),
+                // ✅ تم تكبير الأيقونة
+                child: Icon(Icons.map_outlined, color: Colors.blue[800], size: 24.sp),
               ),
               SizedBox(width: 12.sp),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(isPickedUp ? "التسليم للعميل" : "الاستلام من المتجر", style: TextStyle(color: Colors.grey, fontSize: 10.sp)),
+                    // ✅ تم تكبير الخط
+                    Text(isPickedUp ? "التسليم للعميل" : "الاستلام من المتجر", style: TextStyle(color: Colors.grey, fontSize: 13.sp)),
+                    // ✅ تم تكبير الخط
                     Text(isPickedUp ? dAddr ?? "عنوان العميل" : pAddr ?? "عنوان المتجر", 
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),
@@ -201,9 +208,11 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
                   decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12)),
                   child: Row(
                     children: [
-                      Icon(Icons.near_me, color: Colors.white, size: 14.sp),
+                      // ✅ تم تكبير الأيقونة
+                      Icon(Icons.near_me, color: Colors.white, size: 18.sp),
                       SizedBox(width: 4.sp),
-                      Text("جوجل", style: TextStyle(color: Colors.white, fontSize: 9.sp, fontWeight: FontWeight.bold)),
+                      // ✅ تم تكبير الخط
+                      Text("جوجل", style: TextStyle(color: Colors.white, fontSize: 12.sp, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -220,8 +229,9 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
               shadowColor: isPickedUp ? Colors.green.withOpacity(0.5) : Colors.orange.withOpacity(0.5),
             ),
             onPressed: () => _updateStatus(status),
+            // ✅ تم تكبير الخط
             child: Text(isPickedUp ? "تم التسليم بنجاح ✅" : "استلمت الطلب وبدء الملاحة 📦",
-              style: TextStyle(color: Colors.white, fontSize: 12.sp, fontWeight: FontWeight.bold)),
+              style: TextStyle(color: Colors.white, fontSize: 16.sp, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
