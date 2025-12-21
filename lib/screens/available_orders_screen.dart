@@ -23,15 +23,18 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     _prepareData();
   }
 
-  // 1. تجهيز البيانات: الموقع ونوع المركبة المحفوظ
   Future<void> _prepareData() async {
     final prefs = await SharedPreferences.getInstance();
-    _myVehicle = prefs.getString('user_vehicle_config') ?? 'motorcycleConfig';
+    // جلب القيمة المخزنة: motorcycleConfig أو jumboConfig
+    String savedConfig = prefs.getString('user_vehicle_config') ?? 'motorcycleConfig';
+    
+    // تحويل القيمة لتطابق الموجود في Firestore (motorcycle أو jumbo)
+    setState(() {
+      _myVehicle = savedConfig == 'motorcycleConfig' ? 'motorcycle' : 'jumbo';
+    });
 
     try {
-      // سحب الموقع مرة واحدة للفلترة
-      Position pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+      Position pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       if (mounted) {
         setState(() {
           _myCurrentLocation = pos;
@@ -40,7 +43,6 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _isGettingLocation = false);
-      print("خطأ في جلب الموقع: $e");
     }
   }
 
@@ -59,31 +61,33 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
         elevation: 0,
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // 2. الفلترة: حالة الطلب + نوع المركبة
+        // الفلترة بناءً على الحقول الفعلية في الـ Database الخاصة بك
         stream: FirebaseFirestore.instance
             .collection('specialRequests')
             .where('status', isEqualTo: 'pending')
-            .where('vehicleTypeNeeded', isEqualTo: _myVehicle) // الفلترة بالمركبة
+            .where('vehicleType', isEqualTo: _myVehicle) 
             .snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          
-          final allOrders = snapshot.data!.docs;
 
-          // 3. فلترة المسافة (اختياري: عرض الطلبات في محيط 10 كم مثلاً)
-          final nearbyOrders = allOrders.where((doc) {
+          final docs = snapshot.data!.docs;
+
+          // فلترة المسافة باستخدام GeoPoint
+          final nearbyOrders = docs.where((doc) {
             var data = doc.data() as Map<String, dynamic>;
-            if (data['pickupLat'] == null || _myCurrentLocation == null) return true;
+            GeoPoint? pickupLocation = data['pickupLocation']; // الحقل كما في صورتك
             
+            if (pickupLocation == null || _myCurrentLocation == null) return true;
+
             double distanceInMeters = Geolocator.distanceBetween(
               _myCurrentLocation!.latitude, _myCurrentLocation!.longitude,
-              data['pickupLat'], data['pickupLng']
+              pickupLocation.latitude, pickupLocation.longitude
             );
-            return distanceInMeters <= 10000; // 10 كيلومتر
+            return distanceInMeters <= 15000; // نطاق 15 كم
           }).toList();
 
           if (nearbyOrders.isEmpty) {
-            return Center(child: Text("لا توجد طلبات تناسب مركبتك حالياً", style: TextStyle(fontSize: 14.sp)));
+            return Center(child: Text("لا توجد طلبات تناسبك حالياً", style: TextStyle(fontSize: 14.sp)));
           }
 
           return ListView.builder(
@@ -97,12 +101,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     );
   }
 
-  // 4. المعاملة الذرية (Transaction) لقبول الطلب
+  // المعاملة الذرية لقبول الطلب
   Future<void> _acceptOrder(BuildContext context, String orderId) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    // إظهار مؤشر تحميل
     showDialog(context: context, barrierDismissible: false, builder: (c) => const Center(child: CircularProgressIndicator()));
 
     final orderRef = FirebaseFirestore.instance.collection('specialRequests').doc(orderId);
@@ -110,13 +113,9 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         DocumentSnapshot snapshot = await transaction.get(orderRef);
-
         if (!snapshot.exists) throw "الطلب غير موجود!";
-        
-        String status = snapshot.get('status');
-        if (status != 'pending') throw "عذراً، هذا الطلب سبقه إليك مندوب آخر!";
+        if (snapshot.get('status') != 'pending') throw "سبقك مندوب آخر لهذا الطلب!";
 
-        // تحديث الطلب ليصبح محجوزاً لهذا المندوب
         transaction.update(orderRef, {
           'status': 'accepted',
           'driverId': uid,
@@ -125,10 +124,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
       });
 
       Navigator.pop(context); // إغلاق التحميل
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.green, content: Text("مبروك! تم حجز الطلب لك")));
-      
-      // هنا نقوم بتوجيه المندوب لشاشة تتبع الطلب النشط
-      // Navigator.pushReplacement(context, MaterialPageRoute(builder: (c) => ActiveOrderMapScreen(orderId: orderId)));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.green, content: Text("تم قبول الطلب! اذهب للاستلام")));
 
     } catch (e) {
       Navigator.pop(context);
@@ -140,8 +136,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.white, borderRadius: BorderRadius.circular(20),
         boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
       ),
       child: Padding(
@@ -156,13 +151,13 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
               ],
             ),
             const Divider(),
-            _infoRow(Icons.store, "المحل: ${data['supermarketName'] ?? 'غير محدد'}"),
-            _infoRow(Icons.location_on, "من: ${data['pickupAddress']}"),
-            _infoRow(Icons.flag, "إلى: ${data['dropoffAddress']}"),
+            _infoRow(Icons.shopping_bag, "التفاصيل: ${data['details'] ?? 'بدون وصف'}"),
+            _infoRow(Icons.location_on, "من: ${data['pickupAddress'] ?? 'عنوان الاستلام'}"),
+            _infoRow(Icons.flag, "إلى: ${data['dropoffAddress'] ?? 'عنوان التوصيل'}"),
             const SizedBox(height: 15),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[700],
+                backgroundColor: Colors.green[800],
                 minimumSize: Size(100.w, 7.h),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               ),
@@ -176,10 +171,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
   }
 
   String _calculateDistance(Map<String, dynamic> data) {
-    if (data['pickupLat'] == null || _myCurrentLocation == null) return "??";
+    GeoPoint? pickup = data['pickupLocation'];
+    if (pickup == null || _myCurrentLocation == null) return "??";
     double dist = Geolocator.distanceBetween(
       _myCurrentLocation!.latitude, _myCurrentLocation!.longitude,
-      data['pickupLat'], data['pickupLng']
+      pickup.latitude, pickup.longitude
     );
     return (dist / 1000).toStringAsFixed(1);
   }
@@ -191,7 +187,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
         children: [
           Icon(icon, size: 18.sp, color: Colors.orange[800]),
           const SizedBox(width: 10),
-          Expanded(child: Text(text, style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w500))),
+          Expanded(child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w500))),
         ],
       ),
     );
