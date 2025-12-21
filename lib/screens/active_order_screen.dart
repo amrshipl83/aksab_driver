@@ -65,15 +65,10 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     }
   }
 
-  // الدالة المحسنة لفتح الخرائط خارجياً مع خيار احتياطي للمتصفح
   Future<void> _openExternalMap(GeoPoint point) async {
     final String lat = point.latitude.toString();
     final String lng = point.longitude.toString();
-    
-    // 1. رابط البروتوكول الجغرافي (يفتح تطبيق الخرائط مباشرة)
     final Uri geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng");
-    
-    // 2. رابط ويب (يفتح في المتصفح إذا لم يوجد تطبيق)
     final Uri httpsUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng");
 
     try {
@@ -122,11 +117,17 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
                   options: MapOptions(
                     initialCenter: _currentLocation ?? LatLng(pickup.latitude, pickup.longitude),
                     initialZoom: 14.0,
+                    // تفعيل كافة حركات التفاعل (زووم، تدوير، سحب)
+                    interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
                   ),
                   children: [
+                    // ✅ تم استبدال الطبقة القديمة بطبقة Mapbox باستخدام مفتاحك
                     TileLayer(
-                      urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-                      subdomains: const ['a', 'b', 'c', 'd'],
+                      urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token={accessToken}',
+                      additionalOptions: const {
+                        'accessToken': 'pk.eyJ1IjoiYW1yc2hpcGwiLCJhIjoiY21lajRweGdjMDB0eDJsczdiemdzdXV6biJ9.E--si9vOB93NGcAq7uVgGw',
+                      },
+                      userAgentPackageName: 'com.example.aksab_driver',
                     ),
                     MarkerLayer(
                       markers: [
