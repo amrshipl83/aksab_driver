@@ -30,6 +30,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     _startLiveTracking();
   }
 
+  // تحديث المسار بناءً على الوجهة الحالية (متجر أو عميل)
   Future<void> _updateRoute(LatLng destination) async {
     if (_currentLocation == null) return;
     
@@ -82,7 +83,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
-        final webUri = Uri.parse("http://googleusercontent.com/maps.google.com/?q=${point.latitude},${point.longitude}");
+        final webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${point.latitude},${point.longitude}");
         await launchUrl(webUri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
@@ -151,9 +152,8 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
               ),
               Positioned(
                 bottom: 0, left: 0, right: 0,
-                // ✅ تم إضافة SafeArea هنا لرفع الكارت عن أزرار النظام
                 child: SafeArea(
-                  top: false, 
+                  top: false,
                   child: _build3DControlPanel(status, pickup, dropoff, data['pickupAddress'], data['dropoffAddress']),
                 ),
               ),
@@ -167,14 +167,14 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
   Widget _build3DControlPanel(String status, GeoPoint pickup, GeoPoint dropoff, String? pAddr, String? dAddr) {
     bool isPickedUp = status == 'picked_up';
     return Container(
-      margin: EdgeInsets.all(15.sp),
+      margin: EdgeInsets.all(12.sp),
       padding: EdgeInsets.all(16.sp),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(25),
         boxShadow: [
           BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, -5)),
-          BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 10, offset: const Offset(5, 5)),
+          BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 10, offset: const Offset(4, 4)),
         ],
       ),
       child: Column(
@@ -185,7 +185,6 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
               Container(
                 padding: EdgeInsets.all(10.sp),
                 decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(15)),
-                // ✅ تم تكبير الأيقونة
                 child: Icon(Icons.map_outlined, color: Colors.blue[800], size: 24.sp),
               ),
               SizedBox(width: 12.sp),
@@ -193,45 +192,40 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ✅ تم تكبير الخط
-                    Text(isPickedUp ? "التسليم للعميل" : "الاستلام من المتجر", style: TextStyle(color: Colors.grey, fontSize: 13.sp)),
-                    // ✅ تم تكبير الخط
+                    Text(isPickedUp ? "وجهة التسليم (العميل)" : "وجهة الاستلام (المتجر)", style: TextStyle(color: Colors.grey, fontSize: 11.sp)),
                     Text(isPickedUp ? dAddr ?? "عنوان العميل" : pAddr ?? "عنوان المتجر", 
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),
               InkWell(
                 onTap: () => _openExternalMap(isPickedUp ? dropoff : pickup),
                 child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 12.sp, vertical: 8.sp),
-                  decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12)),
+                  padding: EdgeInsets.symmetric(horizontal: 14.sp, vertical: 10.sp),
+                  decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(15)),
                   child: Row(
                     children: [
-                      // ✅ تم تكبير الأيقونة
-                      Icon(Icons.near_me, color: Colors.white, size: 18.sp),
+                      Icon(Icons.near_me, color: Colors.white, size: 16.sp),
                       SizedBox(width: 4.sp),
-                      // ✅ تم تكبير الخط
-                      Text("جوجل", style: TextStyle(color: Colors.white, fontSize: 12.sp, fontWeight: FontWeight.bold)),
+                      Text("توجيه", style: TextStyle(color: Colors.white, fontSize: 11.sp, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
               ),
             ],
           ),
-          SizedBox(height: 20.sp),
+          SizedBox(height: 18.sp),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: isPickedUp ? Colors.green[600] : Colors.orange[900],
-              minimumSize: Size(double.infinity, 6.5.h),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              elevation: 8,
-              shadowColor: isPickedUp ? Colors.green.withOpacity(0.5) : Colors.orange.withOpacity(0.5),
+              minimumSize: Size(double.infinity, 7.h),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              elevation: 6,
+              shadowColor: isPickedUp ? Colors.green.withOpacity(0.4) : Colors.orange.withOpacity(0.4),
             ),
             onPressed: () => _updateStatus(status),
-            // ✅ تم تكبير الخط
             child: Text(isPickedUp ? "تم التسليم بنجاح ✅" : "استلمت الطلب وبدء الملاحة 📦",
-              style: TextStyle(color: Colors.white, fontSize: 16.sp, fontWeight: FontWeight.bold)),
+              style: TextStyle(color: Colors.white, fontSize: 14.sp, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -240,11 +234,22 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
 
   void _updateStatus(String currentStatus) async {
     String nextStatus = currentStatus == 'accepted' ? 'picked_up' : 'delivered';
-    await FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).update({
-      'status': nextStatus,
-      if (nextStatus == 'delivered') 'completedAt': FieldValue.serverTimestamp(),
-    });
-    if (nextStatus == 'delivered' && mounted) Navigator.of(context).maybePop();
+    
+    try {
+      await FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).update({
+        'status': nextStatus,
+        if (nextStatus == 'delivered') 'completedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (nextStatus == 'delivered' && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("تم توصيل الطلب بنجاح ✅ جاري البحث عن طلبات جديدة..."), backgroundColor: Colors.green)
+        );
+        // النقل إلى شاشة الرادار وتنظيف مكدس الصفحات
+        Navigator.of(context).pushNamedAndRemoveUntil('/radar', (route) => false);
+      }
+    } catch (e) {
+      debugPrint("Update Status Error: $e");
+    }
   }
 }
-
