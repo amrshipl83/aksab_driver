@@ -26,9 +26,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     _startLiveTracking();
   }
 
-  // 1. تعديل لتأمين جلب الموقع فوراً عند الفتح ثم الاستمرار في التتبع
   void _startLiveTracking() async {
-    // جلب الموقع الحالي فوراً لمرة واحدة لضمان ظهور العلامة الزرقاء مباشرة
     try {
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high
@@ -43,7 +41,6 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
       debugPrint("خطأ في جلب الموقع الأولي: $e");
     }
 
-    // الاستمرار في مراقبة التغير في الموقع
     Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high, 
@@ -68,18 +65,29 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     }
   }
 
-  // 2. إصلاح دالة الملاحة الخارجية لتعمل مع كل الأجهزة
+  // الدالة المحسنة لفتح الخرائط خارجياً مع خيار احتياطي للمتصفح
   Future<void> _openExternalMap(GeoPoint point) async {
-    // تم تصحيح صياغة الرابط لضمان تمرير الإحداثيات بشكل سليم
-    final String url = 'https://www.google.com/maps/search/?api=1&query=${point.latitude},${point.longitude}';
-    final Uri uri = Uri.parse(url);
+    final String lat = point.latitude.toString();
+    final String lng = point.longitude.toString();
     
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+    // 1. رابط البروتوكول الجغرافي (يفتح تطبيق الخرائط مباشرة)
+    final Uri geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng");
+    
+    // 2. رابط ويب (يفتح في المتصفح إذا لم يوجد تطبيق)
+    final Uri httpsUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng");
+
+    try {
+      if (await canLaunchUrl(geoUri)) {
+        await launchUrl(geoUri, mode: LaunchMode.externalApplication);
+      } else if (await canLaunchUrl(httpsUri)) {
+        await launchUrl(httpsUri, mode: LaunchMode.externalApplication);
+      } else {
+        throw 'Could not launch map';
+      }
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("تعذر فتح تطبيق الخرائط")),
+          const SnackBar(content: Text("تعذر فتح تطبيق الخرائط أو المتصفح")),
         );
       }
     }
@@ -151,35 +159,38 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
   Widget _buildControlPanel(String status, GeoPoint pickup, GeoPoint dropoff, String? pAddr, String? dAddr) {
     bool isPickedUp = status == 'picked_up';
 
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _locationInfo(
-            isPickedUp ? "وجهة التسليم (العميل)" : "وجهة الاستلام (المتجر)",
-            isPickedUp ? dAddr : pAddr,
-            () => _openExternalMap(isPickedUp ? dropoff : pickup),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isPickedUp ? Colors.green[700] : Colors.orange[900],
-              minimumSize: Size(double.infinity, 7.h),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _locationInfo(
+              isPickedUp ? "وجهة التسليم (العميل)" : "وجهة الاستلام (المتجر)",
+              isPickedUp ? dAddr : pAddr,
+              () => _openExternalMap(isPickedUp ? dropoff : pickup),
             ),
-            onPressed: () => _updateStatus(status),
-            child: Text(
-              isPickedUp ? "تم تسليم الطلب للعميل ✅" : "وصلت للمتجر واستلمت الطلب 📦",
-              style: TextStyle(color: Colors.white, fontSize: 13.sp, fontWeight: FontWeight.bold),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isPickedUp ? Colors.green[700] : Colors.orange[900],
+                minimumSize: Size(double.infinity, 7.h),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              ),
+              onPressed: () => _updateStatus(status),
+              child: Text(
+                isPickedUp ? "تم تسليم الطلب للعميل ✅" : "وصلت للمتجر واستلمت الطلب 📦",
+                style: TextStyle(color: Colors.white, fontSize: 13.sp, fontWeight: FontWeight.bold),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
