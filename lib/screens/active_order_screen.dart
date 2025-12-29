@@ -8,9 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:sizer/sizer.dart';
-
-// ✅ استيراد الملف الصحيح لضمان الانتقال السليم
-import 'available_orders_screen.dart'; 
+import 'available_orders_screen.dart';
 
 class ActiveOrderScreen extends StatefulWidget {
   final String orderId;
@@ -23,6 +21,7 @@ class ActiveOrderScreen extends StatefulWidget {
 class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
   LatLng? _currentLocation;
   List<LatLng> _routePoints = [];
+  LatLng? _lastRouteUpdateLocation;
   final MapController _mapController = MapController();
   final String? _uid = FirebaseAuth.instance.currentUser?.uid;
   final String _mapboxToken = 'pk.eyJ1IjoiYW1yc2hpcGwiLCJhIjoiY21lajRweGdjMDB0eDJsczdiemdzdXV6biJ9.E--si9vOB93NGcAq7uVgGw';
@@ -33,23 +32,40 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     _startLiveTracking();
   }
 
+  // تحديث المسار مع حماية الـ API (كل 20 متر حركة)
   Future<void> _updateRoute(LatLng destination) async {
     if (_currentLocation == null) return;
+    if (_lastRouteUpdateLocation != null) {
+      double distance = Geolocator.distanceBetween(
+        _currentLocation!.latitude, _currentLocation!.longitude,
+        _lastRouteUpdateLocation!.latitude, _lastRouteUpdateLocation!.longitude
+      );
+      if (distance < 20) return; 
+    }
+
     final url = 'https://api.mapbox.com/directions/v5/mapbox/driving/${_currentLocation!.longitude},${_currentLocation!.latitude};${destination.longitude},${destination.latitude}?overview=full&geometries=geojson&access_token=$_mapboxToken';
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final List coords = data['routes'][0]['geometry']['coordinates'];
-        if (mounted) setState(() => _routePoints = coords.map((c) => LatLng(c[1], c[0])).toList());
+        if (mounted) {
+          setState(() {
+            _routePoints = coords.map((c) => LatLng(c[1], c[0])).toList();
+            _lastRouteUpdateLocation = _currentLocation;
+          });
+        }
       }
-    } catch (e) { debugPrint("Route Error: $e"); }
+    } catch (e) { debugPrint("Mapbox Route Error: $e"); }
   }
 
   void _startLiveTracking() async {
     Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
     if (mounted) setState(() => _currentLocation = LatLng(position.latitude, position.longitude));
-    Geolocator.getPositionStream(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10)).listen((Position pos) {
+
+    Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10)
+    ).listen((Position pos) {
       if (mounted) {
         setState(() => _currentLocation = LatLng(pos.latitude, pos.longitude));
         _updateDriverLocationInFirestore(pos);
@@ -66,9 +82,11 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     }
   }
 
-  Future<void> _openExternalMap(GeoPoint point) async {
-    final uri = Uri.parse("google.navigation:q=${point.latitude},${point.longitude}");
-    if (await canLaunchUrl(uri)) { await launchUrl(uri, mode: LaunchMode.externalApplication); }
+  Future<void> _launchGoogleMaps(GeoPoint point) async {
+    final url = 'google.navigation:q=${point.latitude},${point.longitude}';
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    }
   }
 
   @override
@@ -77,7 +95,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: Text("تتبع المسار المباشر", style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white.withOpacity(0.95),
+        backgroundColor: Colors.white.withOpacity(0.9),
         elevation: 4,
         centerTitle: true,
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(bottom: Radius.circular(25))),
@@ -86,22 +104,23 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
         stream: FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData || !snapshot.data!.exists) return const Center(child: CircularProgressIndicator());
+          
           var data = snapshot.data!.data() as Map<String, dynamic>;
+          String status = data['status'];
           GeoPoint pickup = data['pickupLocation'];
           GeoPoint dropoff = data['dropoffLocation'];
-          String status = data['status'];
-          LatLng target = status == 'accepted' ? LatLng(pickup.latitude, pickup.longitude) : LatLng(dropoff.latitude, dropoff.longitude);
+          
+          // تحديد الهدف بناءً على الحالة (accepted -> محل | picked_up -> عميل)
+          GeoPoint targetGeo = (status == 'accepted') ? pickup : dropoff;
+          LatLng targetLatLng = LatLng(targetGeo.latitude, targetGeo.longitude);
 
-          _updateRoute(target);
+          _updateRoute(targetLatLng);
 
           return Stack(
             children: [
               FlutterMap(
                 mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: _currentLocation ?? target,
-                  initialZoom: 14.0,
-                ),
+                options: MapOptions(initialCenter: _currentLocation ?? targetLatLng, initialZoom: 14.5),
                 children: [
                   TileLayer(
                     urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token={accessToken}',
@@ -109,21 +128,31 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
                   ),
                   if (_routePoints.isNotEmpty)
                     PolylineLayer(polylines: [
-                      Polyline(points: _routePoints, color: Colors.blue, strokeWidth: 6, borderColor: Colors.white, borderStrokeWidth: 2.0),
+                      Polyline(points: _routePoints, color: Colors.blueAccent, strokeWidth: 6, borderColor: Colors.white, borderStrokeWidth: 2),
                     ]),
-                  MarkerLayer(
-                    markers: [
-                      if (_currentLocation != null)
-                        Marker(point: _currentLocation!, child: Icon(Icons.delivery_dining, color: Colors.blue, size: 35.sp)),
-                      Marker(point: LatLng(pickup.latitude, pickup.longitude), child: Icon(Icons.store, color: Colors.orange[900], size: 32.sp)),
-                      Marker(point: LatLng(dropoff.latitude, dropoff.longitude), child: Icon(Icons.person_pin_circle, color: Colors.red, size: 32.sp)),
-                    ],
-                  ),
+                  MarkerLayer(markers: [
+                    if (_currentLocation != null)
+                      Marker(point: _currentLocation!, child: Icon(Icons.delivery_dining, color: Colors.blue[900], size: 35.sp)),
+                    Marker(point: LatLng(pickup.latitude, pickup.longitude), child: Icon(Icons.store, color: Colors.orange[900], size: 28.sp)),
+                    Marker(point: LatLng(dropoff.latitude, dropoff.longitude), child: Icon(Icons.person_pin_circle, color: Colors.red, size: 28.sp)),
+                  ]),
                 ],
               ),
+              // المنبثقة السفلية مع Safe Area
               Positioned(
-                bottom: 0, left: 0, right: 0, 
-                child: SafeArea(child: _build3DControlPanel(status, pickup, dropoff, data['pickupAddress'], data['dropoffAddress']))
+                bottom: 0, left: 0, right: 0,
+                child: SafeArea(
+                  child: Container(
+                    margin: EdgeInsets.all(12.sp),
+                    padding: EdgeInsets.all(15.sp),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(25),
+                      boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 15, offset: const Offset(0, -5))],
+                    ),
+                    child: _buildControlUI(status, data, targetGeo),
+                  ),
+                ),
               ),
             ],
           );
@@ -132,76 +161,96 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     );
   }
 
-  Widget _build3DControlPanel(String status, GeoPoint pickup, GeoPoint dropoff, String? pAddr, String? dAddr) {
-    bool isPickedUp = status == 'picked_up';
-    return Container(
-      margin: EdgeInsets.all(15.sp),
-      padding: EdgeInsets.all(20.sp),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 15, offset: const Offset(0, -5))],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.location_on, color: Colors.blue[900], size: 30.sp),
-              SizedBox(width: 10.sp),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(isPickedUp ? "وجهة التسليم" : "نقطة الاستلام", style: TextStyle(color: Colors.grey[700], fontSize: 14.sp)),
-                    Text(isPickedUp ? dAddr ?? "عنوان العميل" : pAddr ?? "عنوان المتجر", 
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17.sp), maxLines: 2),
-                  ],
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: () => _openExternalMap(isPickedUp ? dropoff : pickup),
-                icon: Icon(Icons.directions, size: 20.sp),
-                label: Text("توجيه", style: TextStyle(fontSize: 12.sp)),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
-              )
-            ],
-          ),
-          SizedBox(height: 20.sp),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isPickedUp ? Colors.green[700] : Colors.orange[900],
-              minimumSize: Size(double.infinity, 8.h),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              elevation: 8,
+  Widget _buildControlUI(String status, Map<String, dynamic> data, GeoPoint targetLoc) {
+    bool isAtPickup = status == 'accepted';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            IconButton.filled(
+              onPressed: () => _launchGoogleMaps(targetLoc),
+              icon: Icon(Icons.directions, size: 20.sp),
+              style: IconButton.styleFrom(backgroundColor: Colors.black),
             ),
-            onPressed: () => _updateStatus(status),
-            child: Text(isPickedUp ? "تم التسليم بنجاح ✅" : "استلمت من المتجر وبدء الملاحة 📦",
-              style: TextStyle(color: Colors.white, fontSize: 18.sp, fontWeight: FontWeight.bold)),
+            SizedBox(width: 10.sp),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(isAtPickup ? "الاستلام من المتجر" : "التوصيل للعميل", style: TextStyle(color: Colors.grey[700], fontSize: 11.sp)),
+                  Text(isAtPickup ? data['pickupAddress'] ?? "عنوان المتجر" : data['dropoffAddress'] ?? "عنوان العميل",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            IconButton.filled(
+              onPressed: () => launchUrl(Uri.parse("tel:${data['userPhone'] ?? ''}")),
+              icon: Icon(Icons.phone, size: 20.sp),
+              style: IconButton.styleFrom(backgroundColor: Colors.green[700]),
+            )
+          ],
+        ),
+        SizedBox(height: 15.sp),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isAtPickup ? Colors.orange[900] : Colors.green[800],
+            minimumSize: Size(double.infinity, 7.5.h),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            elevation: 8,
+          ),
+          onPressed: () => isAtPickup ? _showVerificationDialog(data['verificationCode']) : _completeOrder(),
+          child: Text(isAtPickup ? "تأكيد كود الاستلام 📦" : "تم التسليم بنجاح ✅",
+            style: TextStyle(color: Colors.white, fontSize: 17.sp, fontWeight: FontWeight.bold)),
+        ),
+      ],
+    );
+  }
+
+  void _showVerificationDialog(String? correctCode) {
+    final TextEditingController _codeController = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text("أدخل كود الاستلام", textAlign: TextAlign.center, style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: _codeController,
+          keyboardType: TextInputType.text,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 22.sp, fontWeight: FontWeight.bold, letterSpacing: 5),
+          decoration: const InputDecoration(hintText: "كود المتجر"),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("إلغاء", style: TextStyle(fontSize: 14.sp))),
+          ElevatedButton(
+            onPressed: () {
+              if (_codeController.text.trim() == correctCode?.trim()) {
+                Navigator.pop(context);
+                _updateStatus('picked_up');
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("الكود غير صحيح!")));
+              }
+            },
+            child: Text("تأكيد", style: TextStyle(fontSize: 14.sp)),
           ),
         ],
       ),
     );
   }
 
-  void _updateStatus(String currentStatus) async {
-    String nextStatus = currentStatus == 'accepted' ? 'picked_up' : 'delivered';
-    try {
-      await FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).update({
-        'status': nextStatus,
-        if (nextStatus == 'delivered') 'completedAt': FieldValue.serverTimestamp(),
-      });
+  void _updateStatus(String nextStatus) async {
+    await FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).update({'status': nextStatus});
+  }
 
-      if (nextStatus == 'delivered' && mounted) {
-        // ✅ استخدام نفس طريقة الانتقال في تطبيقك (Replacement) للرجوع للرادار
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const AvailableOrdersScreen()),
-        );
-      }
-    } catch (e) {
-      debugPrint("Update Error: $e");
-    }
+  void _completeOrder() async {
+    await FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).update({
+      'status': 'delivered',
+      'completedAt': FieldValue.serverTimestamp(),
+    });
+    if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const AvailableOrdersScreen()));
   }
 }
+
 
