@@ -26,6 +26,7 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
     _listenToActiveOrders();
   }
 
+  // مراقبة الطلبات النشطة (المقبولة أو الجاري استلامها)
   void _listenToActiveOrders() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -141,7 +142,6 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
       body: Stack(
         children: [
           _pages[_selectedIndex],
-          // المؤشر الحديث فوق أيقونة الرادار
           if (_showHandHint && _selectedIndex == 0 && _activeOrderId == null)
             Positioned(
               bottom: kBottomNavigationBarHeight - 5,
@@ -219,16 +219,28 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
           .where('status', isEqualTo: 'delivered')
           .snapshots(),
       builder: (context, snapshot) {
-        double todayEarnings = 0.0;
+        double todayNetEarnings = 0.0;
         int completedCount = 0;
+        double platformCommissionRate = 0.15; // عمولة المنصة 15%
+
         if (snapshot.hasData) {
+          final now = DateTime.now();
+          final todayStart = DateTime(now.year, now.month, now.day);
+          
           var docs = snapshot.data!.docs;
-          completedCount = docs.length;
           for (var doc in docs) {
             final data = doc.data() as Map<String, dynamic>;
-            todayEarnings += (data['deliveryFee'] as num? ?? 0.0).toDouble();
+            
+            // فلتر للتأكد أن الطلب اكتمل "اليوم"
+            Timestamp? completedAt = data['completedAt'] as Timestamp?;
+            if (completedAt != null && completedAt.toDate().isAfter(todayStart)) {
+              completedCount++;
+              double totalPrice = double.tryParse(data['price'].toString()) ?? 0.0;
+              todayNetEarnings += totalPrice * (1 - platformCommissionRate);
+            }
           }
         }
+
         return GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -237,7 +249,7 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
           mainAxisSpacing: 15,
           childAspectRatio: 1.0,
           children: [
-            _statCard("أرباح اليوم", "${todayEarnings.toStringAsFixed(2)} ج.م", Icons.monetization_on, Colors.blue),
+            _statCard("صافي أرباح اليوم", "${todayNetEarnings.toStringAsFixed(2)} ج.م", Icons.monetization_on, Colors.blue),
             _statCard("طلبات منفذة", "$completedCount", Icons.shopping_basket, Colors.orange),
             _statCard("تقييمك", "5.0", Icons.star, Colors.amber),
             _statCard("ساعات العمل", "نشط", Icons.timer, Colors.purple),
@@ -259,10 +271,10 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
         children: [
           Icon(icon, color: color, size: 30.sp),
           const SizedBox(height: 10),
-          Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 12.sp, fontWeight: FontWeight.bold)),
+          Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 11.sp, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           FittedBox(
-            child: Text(value, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18.sp, color: Colors.black)),
+            child: Text(value, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17.sp, color: Colors.black)),
           ),
         ],
       ),
@@ -288,7 +300,6 @@ class _FreeDriverHomeScreenState extends State<FreeDriverHomeScreen> {
     );
   }
 
-  // تصميم المؤشر الحديث (Modern Pulse Hint)
   Widget _buildModernHint() {
     return Column(
       mainAxisSize: MainAxisSize.min,
