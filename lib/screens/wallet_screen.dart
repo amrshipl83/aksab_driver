@@ -12,8 +12,6 @@ class WalletScreen extends StatelessWidget {
   // دالة استدعاء الـ API (اللمدا) لشحن الرصيد
   Future<void> _processCharge(BuildContext context, double amount) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    
-    // الرابط الذي قمت بإنشائه ونشره على AWS
     const String lambdaApiUrl = "https://spmyeym5p4.execute-api.us-east-1.amazonaws.com/div/payment";
 
     // إظهار مؤشر تحميل
@@ -24,7 +22,6 @@ class WalletScreen extends StatelessWidget {
     );
 
     try {
-      // إرسال الحمولة السليمة للمدا
       final response = await http.post(
         Uri.parse(lambdaApiUrl),
         headers: {"Content-Type": "application/json"},
@@ -38,16 +35,23 @@ class WalletScreen extends StatelessWidget {
       if (!context.mounted) return;
       Navigator.pop(context); // إغلاق مؤشر التحميل
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final String paymentUrl = data['paymentUrl'];
+      print("Response Status: ${response.statusCode}");
+      print("Response Body: ${response.body}");
 
-        // فتح المتصفح لإتمام عملية الدفع
-        final Uri url = Uri.parse(paymentUrl);
-        if (await canLaunchUrl(url)) {
-          await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        
+        if (data['status'] == 'success' && data['paymentUrl'] != null) {
+          final Uri url = Uri.parse(data['paymentUrl']);
+          
+          // محاولة فتح الرابط في متصفح خارجي
+          if (await canLaunchUrl(url)) {
+            await launchUrl(url, mode: LaunchMode.externalApplication);
+          } else {
+            _showInfoSheet(context, "تنبيه", "لا يمكن فتح الرابط، تأكد من وجود متصفح مثبت.");
+          }
         } else {
-          _showInfoSheet(context, "تنبيه", "لا يمكن فتح رابط الدفع حالياً.");
+          _showInfoSheet(context, "خطأ", "فشل في استلام رابط الدفع من السيرفر.");
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -56,6 +60,7 @@ class WalletScreen extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) Navigator.pop(context);
+      print("Error during payment request: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("فشل الاتصال بخادم الدفع، تحقق من الإنترنت")),
       );
@@ -69,14 +74,13 @@ class WalletScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text("المحفظة الإلكترونية", 
-          style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold, color: Colors.black)),
+        title: Text("المحفظة الإلكترونية",
+            style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold, color: Colors.black)),
         centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
       ),
       body: StreamBuilder<DocumentSnapshot>(
-        // مراقبة رصيد المندوب من مجموعة freeDrivers
         stream: FirebaseFirestore.instance.collection('freeDrivers').doc(uid).snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
@@ -123,7 +127,10 @@ class WalletScreen extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox();
-        if (snapshot.data!.docs.isEmpty) return Center(child: Text("لا توجد عمليات سابقة", style: TextStyle(color: Colors.grey, fontSize: 11.sp)));
+
+        if (snapshot.data!.docs.isEmpty) {
+          return Center(child: Text("لا توجد عمليات سابقة", style: TextStyle(color: Colors.grey, fontSize: 11.sp)));
+        }
 
         return ListView.builder(
           padding: const EdgeInsets.all(20),
@@ -161,7 +168,7 @@ class WalletScreen extends StatelessWidget {
           Text("رصيدك الحالي المسبق الدفع", style: TextStyle(color: Colors.white70, fontSize: 11.sp)),
           const SizedBox(height: 10),
           Text("${balance.toStringAsFixed(2)} ج.م",
-            style: TextStyle(color: Colors.white, fontSize: 26.sp, fontWeight: FontWeight.bold)),
+              style: TextStyle(color: Colors.white, fontSize: 26.sp, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           if (balance <= 0)
             Container(
@@ -195,9 +202,14 @@ class WalletScreen extends StatelessWidget {
   Widget _historyItem(String title, String amount, Color color, Timestamp? time) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(backgroundColor: Colors.grey[100], child: Icon(Icons.history, color: Colors.grey[600], size: 16.sp)),
+      leading: CircleAvatar(
+          backgroundColor: Colors.grey[100], child: Icon(Icons.history, color: Colors.grey[600], size: 16.sp)),
       title: Text(title, style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.w600)),
-      subtitle: Text(time != null ? "${time.toDate().hour}:${time.toDate().minute} - ${time.toDate().day}/${time.toDate().month}" : "", style: TextStyle(fontSize: 9.sp)),
+      subtitle: Text(
+          time != null
+              ? "${time.toDate().hour}:${time.toDate().minute} - ${time.toDate().day}/${time.toDate().month}"
+              : "",
+          style: TextStyle(fontSize: 9.sp)),
       trailing: Text(amount, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12.sp)),
     );
   }
@@ -216,13 +228,13 @@ class WalletScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [50, 100, 200].map((amt) => ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[900]),
-                onPressed: () {
-                  Navigator.pop(context);
-                  _processCharge(context, amt.toDouble());
-                },
-                child: Text("$amt ج.م"),
-              )).toList(),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[900]),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _processCharge(context, amt.toDouble());
+                    },
+                    child: Text("$amt ج.م", style: const TextStyle(color: Colors.white)),
+                  )).toList(),
             ),
             const SizedBox(height: 20),
           ],
@@ -239,7 +251,7 @@ class WalletScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle, size: 40.sp, color: Colors.green),
+            Icon(Icons.info_outline, size: 40.sp, color: Colors.orange),
             const SizedBox(height: 15),
             Text(title, style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
