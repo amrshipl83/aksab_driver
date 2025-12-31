@@ -33,6 +33,42 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     _startLiveTracking();
   }
 
+  // الدالة المصلحة بناءً على منطق المستمع (Listener) في السيرفر
+  Future<void> _notifyUserOrderDelivered(String targetUserId) async {
+    const String lambdaUrl = 'https://9ayce138ig.execute-api.us-east-1.amazonaws.com/V1/nofiction';
+    
+    try {
+      // جلب الـ ARN من كولكشن UserEndpoints كما يفعل كود Node.js
+      var endpointSnap = await FirebaseFirestore.instance
+          .collection('UserEndpoints')
+          .doc(targetUserId)
+          .get();
+
+      if (!endpointSnap.exists || endpointSnap.data()?['endpointArn'] == null) {
+        debugPrint("❌ Notification Cancelled: No endpointArn found in UserEndpoints");
+        return;
+      }
+
+      String arn = endpointSnap.data()!['endpointArn'];
+
+      final payload = {
+        "userId": arn, // وضع الـ ARN هنا هو السر لنجاح الـ Lambda
+        "title": "أكسب مناديب: تم التسليم بنجاح! ✅",
+        "message": "يسعدنا دائماً خدمتك. فضلاً، قم بتقييم المندوب وتأكيد الاستلام الآن لضمان جودة الخدمة.",
+        "orderId": widget.orderId,
+      };
+
+      await http.post(
+        Uri.parse(lambdaUrl),
+        headers: {"Content-Type": "application/json"},
+        body: json.encode(payload),
+      );
+      debugPrint("🔔 Notification Sent Successfully to ARN: $arn");
+    } catch (e) {
+      debugPrint("❌ Notification Error: $e");
+    }
+  }
+
   Future<void> _updateRoute(LatLng destination) async {
     if (_currentLocation == null) return;
     if (_lastRouteUpdateLocation != null) {
@@ -242,9 +278,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
     await FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).update({'status': nextStatus});
   }
 
-  // الدالة النهائية والمحدثة للخصم المالي وإتمام الطلب
   void _completeOrder() async {
-    // 1. إظهار مؤشر التحميل
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -256,23 +290,20 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
 
     try {
       double savedCommission = 0;
+      String? customerUserId;
 
-      // 2. استخدام Transaction لضمان الدقة المالية
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         DocumentSnapshot orderSnap = await transaction.get(orderRef);
-        
         if (!orderSnap.exists) throw "الطلب غير موجود!";
-        
-        // جلب العمولة المحجوزة من مستند الطلب
-        savedCommission = (orderSnap.get('commissionAmount') ?? 0.0).toDouble();
 
-        // تحديث حالة الطلب
+        savedCommission = (orderSnap.get('commissionAmount') ?? 0.0).toDouble();
+        customerUserId = orderSnap.get('userId');
+
         transaction.update(orderRef, {
           'status': 'delivered',
           'completedAt': FieldValue.serverTimestamp(),
         });
 
-        // الخصم من محفظة المندوب
         if (driverId != null && savedCommission > 0) {
           final driverRef = FirebaseFirestore.instance.collection('freeDrivers').doc(driverId);
           transaction.update(driverRef, {
@@ -281,9 +312,12 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
         }
       });
 
-      if (mounted) {
-        Navigator.pop(context); // إغلاق التحميل
+      if (customerUserId != null) {
+        _notifyUserOrderDelivered(customerUserId!);
+      }
 
+      if (mounted) {
+        Navigator.pop(context);
         final prefs = await SharedPreferences.getInstance();
         String vType = prefs.getString('user_vehicle_config') ?? 'motorcycleConfig';
 
@@ -301,7 +335,7 @@ class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // إغلاق التحميل
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(backgroundColor: Colors.red, content: Text("فشل في إتمام الطلب: $e")),
         );
