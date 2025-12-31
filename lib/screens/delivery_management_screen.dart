@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:latlong2/latlong2.dart'; // مكتبتك الحالية
-import 'package:sizer/sizer.dart'; // مكتبتك الحالية للتنسيق
+// تصحيح: المكتبة تُنادى هكذا طالما هي latlong2 في pubspec
+import 'package:latlong2/latlong2.dart'; 
+import 'package:sizer/sizer.dart';
 
 class DeliveryManagementScreen extends StatefulWidget {
   const DeliveryManagementScreen({super.key});
@@ -37,7 +38,6 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
     }
   }
 
-  // تحميل ملف الـ GeoJSON (يجب أن يكون في مجلد assets بنفس الاسم)
   Future<void> _loadGeoJson() async {
     final String response = await rootBundle.loadString(
         'assets/OSMB-bc319d822a17aa9ad1089fc05e7d4e752460f877.geojson');
@@ -48,17 +48,17 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    // تصحيح: استخدام isEqualTo بدلاً من الصيغة النصية '=='
     final snap = await FirebaseFirestore.instance
         .collection('managers')
-        .where('uid', '==', user.uid)
+        .where('uid', isEqualTo: user.uid)
         .get();
 
     if (snap.docs.isNotEmpty) {
       var data = snap.docs.first.data();
-      role = data['role']; // 'delivery_manager' أو 'delivery_supervisor'
+      role = data['role']; 
       myAreas = List<String>.from(data['geographicArea'] ?? []);
       
-      // جلب المناديب التابعين للمشرف فقط
       if (data['reps'] != null) {
         for (String repId in data['reps']) {
           var repDoc = await FirebaseFirestore.instance.collection('deliveryReps').doc(repId).get();
@@ -74,7 +74,6 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
     }
   }
 
-  // خوارزمية التحقق الجغرافي (نفس منطق الـ HTML)
   bool _isPointInPolygon(LatLng point, List<LatLng> polygon) {
     var lat = point.latitude;
     var lng = point.longitude;
@@ -90,10 +89,13 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
   }
 
   bool _isOrderInMyArea(Map<String, dynamic> locationData) {
-    if (role == 'delivery_manager') return true; // المدير يرى الكل
+    if (role == 'delivery_manager') return true;
     if (geoJsonData == null || myAreas.isEmpty) return false;
 
-    LatLng orderPoint = LatLng(locationData['lat'].toDouble(), locationData['lng'].toDouble());
+    // تأمين تحويل الأرقام لـ double
+    double lat = (locationData['lat'] as num).toDouble();
+    double lng = (locationData['lng'] as num).toDouble();
+    LatLng orderPoint = LatLng(lat, lng);
 
     for (var areaName in myAreas) {
       var feature = geoJsonData!['features'].firstWhere(
@@ -101,7 +103,7 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
 
       if (feature != null) {
         List coords = feature['geometry']['coordinates'][0];
-        List<LatLng> polygon = coords.map<LatLng>((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
+        List<LatLng> polygon = coords.map<LatLng>((c) => LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble())).toList();
         if (_isPointInPolygon(orderPoint, polygon)) return true;
       }
     }
@@ -114,6 +116,7 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
       appBar: AppBar(
         title: Text(role == 'delivery_manager' ? "إدارة طلبات المدير" : "طلبات المشرف - جغرافياً"),
         centerTitle: true,
+        backgroundColor: const Color(0xFF2F3542),
       ),
       body: isLoading 
           ? const Center(child: CircularProgressIndicator()) 
@@ -122,7 +125,6 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-                // فلترة الطلبات بناءً على الدور والمنطقة الجغرافية والحالة
                 var filteredOrders = snapshot.data!.docs.where((doc) {
                   var data = doc.data() as Map<String, dynamic>;
                   if (role == 'delivery_manager') {
@@ -135,7 +137,7 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
                 }).toList();
 
                 if (filteredOrders.isEmpty) {
-                  return const Center(child: Text("لا توجد طلبات حالياً"));
+                  return const Center(child: Text("لا توجد طلبات حالياً في نطاقك"));
                 }
 
                 return ListView.builder(
@@ -189,7 +191,6 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
     );
   }
 
-  // زر المدير: نقل الطلب للمشرفين
   Future<void> _managerMoveToDelivery(String id) async {
     await FirebaseFirestore.instance.collection('orders').doc(id).update({
       'deliveryManagerAssigned': true,
@@ -197,7 +198,6 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
     });
   }
 
-  // واجهة المشرف: اختيار المندوب
   Widget _buildSupervisorAction(String orderId, Map<String, dynamic> orderData) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,12 +206,18 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
         DropdownButton<String>(
           isExpanded: true,
           hint: const Text("اختر مندوب من فريقك"),
-          items: myReps.map((rep) {
-            return DropdownMenuItem(value: rep['repCode'], child: Text(rep['fullname']));
+          // تصحيح: تحديد نوع الـ Items لتجنب خطأ Object/String
+          items: myReps.map<DropdownMenuItem<String>>((rep) {
+            return DropdownMenuItem<String>(
+              value: rep['repCode'].toString(), 
+              child: Text(rep['fullname'].toString())
+            );
           }).toList(),
           onChanged: (val) async {
-            var selectedRep = myReps.firstWhere((r) => r['repCode'] == val);
-            await _assignToRep(orderId, orderData, selectedRep);
+            if (val != null) {
+              var selectedRep = myReps.firstWhere((r) => r['repCode'] == val);
+              await _assignToRep(orderId, orderData, selectedRep);
+            }
           },
         ),
       ],
@@ -224,7 +230,6 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
       'repName': rep['fullname'],
       'status': 'assigned-to-rep'
     });
-    // رفعه لمجموعة الانتظار ليظهر فوراً في تطبيق المندوب المختارة
     await FirebaseFirestore.instance.collection('waitingdelivery').doc(id).set(data);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("تم الإسناد للمندوب ${rep['fullname']}")));

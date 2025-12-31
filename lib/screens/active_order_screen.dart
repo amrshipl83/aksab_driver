@@ -1,345 +1,249 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:url_launcher/url_launcher.dart';
+// التعديل الصحيح بناءً على ملفات مشروعك
+import 'package:latlong2/latlong.dart'; 
 import 'package:sizer/sizer.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'available_orders_screen.dart';
 
-class ActiveOrderScreen extends StatefulWidget {
-  final String orderId;
-  const ActiveOrderScreen({super.key, required this.orderId});
+class DeliveryManagementScreen extends StatefulWidget {
+  const DeliveryManagementScreen({super.key});
 
   @override
-  State<ActiveOrderScreen> createState() => _ActiveOrderScreenState();
+  State<DeliveryManagementScreen> createState() => _DeliveryManagementScreenState();
 }
 
-class _ActiveOrderScreenState extends State<ActiveOrderScreen> {
-  LatLng? _currentLocation;
-  List<LatLng> _routePoints = [];
-  LatLng? _lastRouteUpdateLocation;
-  final MapController _mapController = MapController();
-  final String? _uid = FirebaseAuth.instance.currentUser?.uid;
-  final String _mapboxToken = 'pk.eyJ1IjoiYW1yc2hpcGwiLCJhIjoiY21lajRweGdjMDB0eDJsczdiemdzdXV6biJ9.E--si9vOB93NGcAq7uVgGw';
+class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
+  String? role;
+  List<String> myAreas = [];
+  Map<String, dynamic>? geoJsonData;
+  List<Map<String, dynamic>> myReps = [];
+  bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _startLiveTracking();
+    _initializeData();
   }
 
-  // الدالة المصلحة بناءً على منطق المستمع (Listener) في السيرفر
-  Future<void> _notifyUserOrderDelivered(String targetUserId) async {
-    const String lambdaUrl = 'https://9ayce138ig.execute-api.us-east-1.amazonaws.com/V1/nofiction';
-    
+  Future<void> _initializeData() async {
     try {
-      // جلب الـ ARN من كولكشن UserEndpoints كما يفعل كود Node.js
-      var endpointSnap = await FirebaseFirestore.instance
-          .collection('UserEndpoints')
-          .doc(targetUserId)
-          .get();
-
-      if (!endpointSnap.exists || endpointSnap.data()?['endpointArn'] == null) {
-        debugPrint("❌ Notification Cancelled: No endpointArn found in UserEndpoints");
-        return;
-      }
-
-      String arn = endpointSnap.data()!['endpointArn'];
-
-      final payload = {
-        "userId": arn, // وضع الـ ARN هنا هو السر لنجاح الـ Lambda
-        "title": "أكسب مناديب: تم التسليم بنجاح! ✅",
-        "message": "يسعدنا دائماً خدمتك. فضلاً، قم بتقييم المندوب وتأكيد الاستلام الآن لضمان جودة الخدمة.",
-        "orderId": widget.orderId,
-      };
-
-      await http.post(
-        Uri.parse(lambdaUrl),
-        headers: {"Content-Type": "application/json"},
-        body: json.encode(payload),
-      );
-      debugPrint("🔔 Notification Sent Successfully to ARN: $arn");
+      await _loadGeoJson();
+      await _getUserData();
     } catch (e) {
-      debugPrint("❌ Notification Error: $e");
+      debugPrint("Error initializing: $e");
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
-  Future<void> _updateRoute(LatLng destination) async {
-    if (_currentLocation == null) return;
-    if (_lastRouteUpdateLocation != null) {
-      double distance = Geolocator.distanceBetween(
-          _currentLocation!.latitude, _currentLocation!.longitude,
-          _lastRouteUpdateLocation!.latitude, _lastRouteUpdateLocation!.longitude
-      );
-      if (distance < 20) return;
-    }
+  Future<void> _loadGeoJson() async {
+    final String response = await rootBundle.loadString(
+        'assets/OSMB-bc319d822a17aa9ad1089fc05e7d4e752460f877.geojson');
+    geoJsonData = json.decode(response);
+  }
 
-    final url = 'https://api.mapbox.com/directions/v5/mapbox/driving/${_currentLocation!.longitude},${_currentLocation!.latitude};${destination.longitude},${destination.latitude}?overview=full&geometries=geojson&access_token=$_mapboxToken';
-    try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final List coords = data['routes'][0]['geometry']['coordinates'];
-        if (mounted) {
-          setState(() {
-            _routePoints = coords.map((c) => LatLng(c[1], c[0])).toList();
-            _lastRouteUpdateLocation = _currentLocation;
-          });
+  Future<void> _getUserData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // تصحيح: استخدام isEqualTo بدلاً من '=='
+    final snap = await FirebaseFirestore.instance
+        .collection('managers')
+        .where('uid', isEqualTo: user.uid)
+        .get();
+
+    if (snap.docs.isNotEmpty) {
+      var data = snap.docs.first.data();
+      role = data['role']; 
+      myAreas = List<String>.from(data['geographicArea'] ?? []);
+      
+      if (data['reps'] != null) {
+        for (String repId in data['reps']) {
+          var repDoc = await FirebaseFirestore.instance.collection('deliveryReps').doc(repId).get();
+          if (repDoc.exists) {
+            myReps.add({
+              'id': repDoc.id, 
+              'fullname': repDoc['fullname'], 
+              'repCode': repDoc['repCode']
+            });
+          }
         }
       }
-    } catch (e) { debugPrint("Mapbox Route Error: $e"); }
+    }
   }
 
-  void _startLiveTracking() async {
-    Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-    if (mounted) setState(() => _currentLocation = LatLng(position.latitude, position.longitude));
+  bool _isPointInPolygon(LatLng point, List<LatLng> polygon) {
+    var lat = point.latitude;
+    var lng = point.longitude;
+    var inside = false;
+    for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      var xi = polygon[i].latitude, yi = polygon[i].longitude;
+      var xj = polygon[j].latitude, yj = polygon[j].longitude;
+      var intersect = ((yi > lng) != (yj > lng)) &&
+          (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
 
-    Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10)
-    ).listen((Position pos) {
-      if (mounted) {
-        setState(() => _currentLocation = LatLng(pos.latitude, pos.longitude));
-        _updateDriverLocationInFirestore(pos);
+  bool _isOrderInMyArea(Map<String, dynamic> locationData) {
+    if (role == 'delivery_manager') return true;
+    if (geoJsonData == null || myAreas.isEmpty) return false;
+
+    // تأمين تحويل الأرقام لـ double لضمان عدم حدوث Crash
+    double lat = (locationData['lat'] as num).toDouble();
+    double lng = (locationData['lng'] as num).toDouble();
+    LatLng orderPoint = LatLng(lat, lng);
+
+    for (var areaName in myAreas) {
+      var feature = geoJsonData!['features'].firstWhere(
+          (f) => f['properties']['name'] == areaName, orElse: () => null);
+
+      if (feature != null) {
+        var geometry = feature['geometry'];
+        List coords = geometry['coordinates'][0];
+        
+        List<LatLng> polygon = coords.map<LatLng>((c) => 
+          LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble())
+        ).toList();
+        
+        if (_isPointInPolygon(orderPoint, polygon)) return true;
       }
-    });
-  }
-
-  void _updateDriverLocationInFirestore(Position pos) {
-    if (_uid != null) {
-      FirebaseFirestore.instance.collection('freeDrivers').doc(_uid).update({
-        'location': GeoPoint(pos.latitude, pos.longitude),
-        'lastSeen': FieldValue.serverTimestamp(),
-      });
     }
-  }
-
-  Future<void> _launchGoogleMaps(GeoPoint point) async {
-    final url = 'google.navigation:q=${point.latitude},${point.longitude}';
-    if (await canLaunchUrl(Uri.parse(url))) {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    }
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text("تتبع المسار المباشر", style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white.withOpacity(0.9),
-        elevation: 4,
+        title: Text(role == 'delivery_manager' ? "إدارة طلبات المدير" : "طلبات المشرف - جغرافياً"),
         centerTitle: true,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(bottom: Radius.circular(25))),
+        backgroundColor: const Color(0xFF2F3542),
       ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData || !snapshot.data!.exists) return const Center(child: CircularProgressIndicator());
+      body: isLoading 
+          ? const Center(child: CircularProgressIndicator()) 
+          : StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('orders').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-          var data = snapshot.data!.data() as Map<String, dynamic>;
-          String status = data['status'];
-          GeoPoint pickup = data['pickupLocation'];
-          GeoPoint dropoff = data['dropoffLocation'];
+                var filteredOrders = snapshot.data!.docs.where((doc) {
+                  var data = doc.data() as Map<String, dynamic>;
+                  if (role == 'delivery_manager') {
+                    return data['status'] == 'new-order';
+                  } else if (role == 'delivery_supervisor') {
+                    return data['status'] == 'awaiting-delivery-assignment' && 
+                           _isOrderInMyArea(data['buyer']['location']);
+                  }
+                  return false;
+                }).toList();
 
-          GeoPoint targetGeo = (status == 'accepted') ? pickup : dropoff;
-          LatLng targetLatLng = LatLng(targetGeo.latitude, targetGeo.longitude);
+                if (filteredOrders.isEmpty) {
+                  return const Center(child: Text("لا توجد طلبات حالياً في نطاقك"));
+                }
 
-          _updateRoute(targetLatLng);
+                return ListView.builder(
+                  itemCount: filteredOrders.length,
+                  itemBuilder: (context, index) {
+                    var order = filteredOrders[index].data() as Map<String, dynamic>;
+                    var orderId = filteredOrders[index].id;
 
-          return Stack(
-            children: [
-              FlutterMap(
-                mapController: _mapController,
-                options: MapOptions(initialCenter: _currentLocation ?? targetLatLng, initialZoom: 14.5),
-                children: [
-                  TileLayer(
-                    urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token={accessToken}',
-                    additionalOptions: {'accessToken': _mapboxToken},
-                  ),
-                  if (_routePoints.isNotEmpty)
-                    PolylineLayer(polylines: [
-                      Polyline(points: _routePoints, color: Colors.blueAccent, strokeWidth: 6, borderColor: Colors.white, borderStrokeWidth: 2),
-                    ]),
-                  MarkerLayer(markers: [
-                    if (_currentLocation != null)
-                      Marker(point: _currentLocation!, child: Icon(Icons.delivery_dining, color: Colors.blue[900], size: 22.sp)),
-                    Marker(point: LatLng(pickup.latitude, pickup.longitude), child: Icon(Icons.store, color: Colors.orange[900], size: 18.sp)),
-                    Marker(point: LatLng(dropoff.latitude, dropoff.longitude), child: Icon(Icons.person_pin_circle, color: Colors.red, size: 18.sp)),
-                  ]),
-                ],
-              ),
-              Positioned(
-                bottom: 0, left: 0, right: 0,
-                child: SafeArea(
-                  child: Container(
-                    margin: EdgeInsets.all(12.sp),
-                    padding: EdgeInsets.all(15.sp),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(25),
-                      boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 15, offset: const Offset(0, -5))],
-                    ),
-                    child: _buildControlUI(status, data, targetGeo),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+                    return Card(
+                      margin: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
+                      elevation: 3,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      child: Padding(
+                        padding: EdgeInsets.all(15.sp),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text("طلب رقم: ${orderId.substring(0, 5)}", 
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.sp)),
+                                Text("${order['total']} ج.م", 
+                                  style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12.sp)),
+                              ],
+                            ),
+                            const Divider(),
+                            Text("العميل: ${order['buyer']['name']}"),
+                            Text("العنوان: ${order['buyer']['address']}"),
+                            SizedBox(height: 2.h),
+                            
+                            if (role == 'delivery_manager')
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  icon: const Icon(Icons.send),
+                                  label: const Text("نقل للتوصيل"),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.orange, 
+                                    foregroundColor: Colors.white
+                                  ),
+                                  onPressed: () => _managerMoveToDelivery(orderId),
+                                ),
+                              ),
+
+                            if (role == 'delivery_supervisor')
+                              _buildSupervisorAction(orderId, order),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
     );
   }
 
-  Widget _buildControlUI(String status, Map<String, dynamic> data, GeoPoint targetLoc) {
-    bool isAtPickup = status == 'accepted';
+  Future<void> _managerMoveToDelivery(String id) async {
+    await FirebaseFirestore.instance.collection('orders').doc(id).update({
+      'deliveryManagerAssigned': true,
+      'status': 'awaiting-delivery-assignment'
+    });
+  }
+
+  Widget _buildSupervisorAction(String orderId, Map<String, dynamic> orderData) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            IconButton.filled(
-              onPressed: () => _launchGoogleMaps(targetLoc),
-              icon: Icon(Icons.directions, size: 20.sp),
-              style: IconButton.styleFrom(backgroundColor: Colors.black),
-            ),
-            SizedBox(width: 10.sp),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(isAtPickup ? "الاستلام من المتجر" : "التوصيل للعميل", style: TextStyle(color: Colors.grey[700], fontSize: 11.sp)),
-                  Text(isAtPickup ? data['pickupAddress'] ?? "عنوان المتجر" : data['dropoffAddress'] ?? "عنوان العميل",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
-                ],
-              ),
-            ),
-            IconButton.filled(
-              onPressed: () => launchUrl(Uri.parse("tel:${data['userPhone'] ?? ''}")),
-              icon: Icon(Icons.phone, size: 20.sp),
-              style: IconButton.styleFrom(backgroundColor: Colors.green[700]),
-            )
-          ],
-        ),
-        SizedBox(height: 15.sp),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: isAtPickup ? Colors.orange[900] : Colors.green[800],
-            minimumSize: Size(double.infinity, 8.h),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-            elevation: 8,
-          ),
-          onPressed: () => isAtPickup ? _showVerificationDialog(data['verificationCode']) : _completeOrder(),
-          child: Text(isAtPickup ? "تأكيد كود الاستلام 📦" : "تم التسليم بنجاح ✅",
-              style: TextStyle(color: Colors.white, fontSize: 17.sp, fontWeight: FontWeight.bold)),
+        const Text("إسناد لمندوب تحصيل:", style: TextStyle(fontWeight: FontWeight.bold)),
+        DropdownButton<String>(
+          isExpanded: true,
+          hint: const Text("اختر مندوب من فريقك"),
+          items: myReps.map<DropdownMenuItem<String>>((rep) {
+            return DropdownMenuItem<String>(
+              value: rep['repCode'].toString(), 
+              child: Text(rep['fullname'].toString())
+            );
+          }).toList(),
+          onChanged: (val) async {
+            if (val != null) {
+              var selectedRep = myReps.firstWhere((r) => r['repCode'] == val);
+              await _assignToRep(orderId, orderData, selectedRep);
+            }
+          },
         ),
       ],
     );
   }
 
-  void _showVerificationDialog(String? correctCode) {
-    final TextEditingController _codeController = TextEditingController();
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text("أدخل كود الاستلام", textAlign: TextAlign.center, style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: _codeController,
-          keyboardType: TextInputType.text,
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 22.sp, fontWeight: FontWeight.bold, letterSpacing: 5),
-          decoration: const InputDecoration(hintText: "كود المتجر"),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text("إلغاء", style: TextStyle(fontSize: 14.sp))),
-          ElevatedButton(
-            onPressed: () {
-              if (_codeController.text.trim() == correctCode?.trim()) {
-                Navigator.pop(context);
-                _updateStatus('picked_up');
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("الكود غير صحيح!")));
-              }
-            },
-            child: Text("تأكيد", style: TextStyle(fontSize: 14.sp)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _updateStatus(String nextStatus) async {
-    await FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId).update({'status': nextStatus});
-  }
-
-  void _completeOrder() async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (c) => const Center(child: CircularProgressIndicator(color: Colors.green)),
-    );
-
-    final orderRef = FirebaseFirestore.instance.collection('specialRequests').doc(widget.orderId);
-    final driverId = FirebaseAuth.instance.currentUser?.uid;
-
-    try {
-      double savedCommission = 0;
-      String? customerUserId;
-
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        DocumentSnapshot orderSnap = await transaction.get(orderRef);
-        if (!orderSnap.exists) throw "الطلب غير موجود!";
-
-        savedCommission = (orderSnap.get('commissionAmount') ?? 0.0).toDouble();
-        customerUserId = orderSnap.get('userId');
-
-        transaction.update(orderRef, {
-          'status': 'delivered',
-          'completedAt': FieldValue.serverTimestamp(),
-        });
-
-        if (driverId != null && savedCommission > 0) {
-          final driverRef = FirebaseFirestore.instance.collection('freeDrivers').doc(driverId);
-          transaction.update(driverRef, {
-            'walletBalance': FieldValue.increment(-savedCommission),
-          });
-        }
-      });
-
-      if (customerUserId != null) {
-        _notifyUserOrderDelivered(customerUserId!);
-      }
-
-      if (mounted) {
-        Navigator.pop(context);
-        final prefs = await SharedPreferences.getInstance();
-        String vType = prefs.getString('user_vehicle_config') ?? 'motorcycleConfig';
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.green,
-            content: Text("تم التسليم بنجاح! تم خصم عمولة: ${savedCommission.toStringAsFixed(1)} ج.م"),
-          ),
-        );
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => AvailableOrdersScreen(vehicleType: vType))
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: Colors.red, content: Text("فشل في إتمام الطلب: $e")),
-        );
-      }
+  Future<void> _assignToRep(String id, Map<String, dynamic> data, Map rep) async {
+    await FirebaseFirestore.instance.collection('orders').doc(id).update({
+      'deliveryRepId': rep['repCode'],
+      'repName': rep['fullname'],
+      'status': 'assigned-to-rep'
+    });
+    await FirebaseFirestore.instance.collection('waitingdelivery').doc(id).set(data);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("تم الإسناد للمندوب ${rep['fullname']}"))
+      );
     }
   }
 }
