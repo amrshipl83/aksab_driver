@@ -78,11 +78,16 @@ class AuthWrapper extends StatelessWidget {
                 final String type = userData['type'];
                 final String status = userData['status'] ?? '';
 
+                // 1. منطق مناديب الشركة
                 if (type == 'deliveryRep' && status == 'approved') {
                   return const CompanyRepHomeScreen();
-                } else if (type == 'freeDriver' && status == 'approved') {
+                } 
+                // 2. منطق المناديب الأحرار
+                else if (type == 'freeDriver' && status == 'approved') {
                   return const FreeDriverHomeScreen();
-                } else if (type == 'manager') {
+                } 
+                // 3. منطق طاقم الإدارة (مدير توصيل أو مشرف توصيل)
+                else if (type == 'manager') {
                   String role = userData['role'] ?? '';
                   if (role == 'delivery_manager' || role == 'delivery_supervisor') {
                     return const DeliveryAdminDashboard();
@@ -90,7 +95,7 @@ class AuthWrapper extends StatelessWidget {
                 }
               }
 
-              // إذا لم يتطابق مع أي دور أو غير مقبول
+              // إذا لم يتطابق مع أي دور أو الحساب غير مفعل بعد
               return const LoginScreen();
             },
           );
@@ -111,11 +116,12 @@ class AuthWrapper extends StatelessWidget {
     var freeDoc = await FirebaseFirestore.instance.collection('freeDrivers').doc(uid).get();
     if (freeDoc.exists) return {...freeDoc.data()!, 'type': 'freeDriver'};
 
-    // 3. فحص المديرين (باستخدام الاستعلام عن الـ uid لأن الـ doc ID قد يكون مختلفاً)
+    // 3. فحص المديرين (باستخدام الاستعلام عن الـ uid)
     var managerSnap = await FirebaseFirestore.instance
         .collection('managers')
         .where('uid', isEqualTo: uid)
         .get();
+        
     if (managerSnap.docs.isNotEmpty) {
       return {...managerSnap.docs.first.data(), 'type': 'manager'};
     }

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:sizer/sizer.dart';
-// استدعاء الصفحة الجديدة
-import 'delivery_management_screen.dart'; 
+
+// استدعاء الصفحات التابعة
+import 'delivery_management_screen.dart';
+import 'manager_geo_dist_screen.dart'; // الصفحة الجديدة التي أضفناها
 
 class DeliveryAdminDashboard extends StatefulWidget {
   const DeliveryAdminDashboard({super.key});
@@ -148,7 +150,9 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
           Icon(icon, color: color, size: 28.sp),
           SizedBox(height: 1.h),
           Text(title, style: TextStyle(fontSize: 10.sp, color: Colors.grey[600])),
-          Text(value, style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold, color: color), textAlign: TextAlign.center),
+          Text(value,
+              style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold, color: color),
+              textAlign: TextAlign.center),
         ],
       ),
     );
@@ -160,9 +164,9 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
         children: [
           DrawerHeader(
             decoration: const BoxDecoration(color: Color(0xFF2F3542)),
-            child: Center(child: Text("أكسب - إدارة التوصيل", style: TextStyle(color: Colors.white, fontSize: 18.sp))),
+            child: Center(
+                child: Text("أكسب - إدارة التوصيل", style: TextStyle(color: Colors.white, fontSize: 18.sp))),
           ),
-          // ربط صفحة تقارير الطلبات الجغرافية
           _drawerItem(Icons.analytics, "تقارير الطلبات", () {
             Navigator.push(
               context,
@@ -170,10 +174,18 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
             );
           }),
           _drawerItem(Icons.people, "إدارة المناديب", () {
-             // مكان لإدارة المناديب لاحقاً
+            // مكان لإدارة المناديب لاحقاً
           }),
+          
+          // تحديث الجزء الخاص بمناطق المشرفين ليعمل عند الضغط
           if (_userData?['role'] == 'delivery_manager')
-            _drawerItem(Icons.map, "مناطق المشرفين", () {}),
+            _drawerItem(Icons.map, "مناطق المشرفين", () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ManagerGeoDistScreen()),
+              );
+            }),
+
           const Divider(),
           _drawerItem(Icons.logout, "تسجيل الخروج", () => FirebaseAuth.instance.signOut()),
         ],
