@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'free_driver_home_screen.dart';
+import 'CompanyRepHomeScreen.dart'; // استيراد الصفحة الجديدة
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -39,39 +40,59 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       String uid = userCredential.user!.uid;
-      Map<String, dynamic>? userData;
-
-      // فحص الأدوار المختلفة
+      
+      // 1. فحص هل هو مندوب شركة أولاً (deliveryReps)
       var repSnap = await FirebaseFirestore.instance.collection('deliveryReps').doc(uid).get();
-      var freeSnap = await FirebaseFirestore.instance.collection('freeDrivers').doc(uid).get();
-      var managerSnap = await FirebaseFirestore.instance.collection('managers').doc(uid).get();
-
       if (repSnap.exists) {
-        userData = repSnap.data();
-      } else if (freeSnap.exists) {
-        userData = freeSnap.data();
-      } else if (managerSnap.exists) {
-        userData = managerSnap.data();
+        var userData = repSnap.data()!;
+        if (userData['status'] == 'approved') {
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const CompanyRepHomeScreen()),
+            );
+          }
+          return; // الخروج من الدالة بعد التوجيه الناجح
+        } else {
+          await FirebaseAuth.instance.signOut();
+          _showError("❌ حساب المندوب غير مفعل. راجع الإدارة.");
+          return;
+        }
       }
 
-      if (userData != null && userData['status'] == 'approved') {
-        if (userData['role'] == 'free_driver') {
+      // 2. فحص هل هو مندوب حر (freeDrivers)
+      var freeSnap = await FirebaseFirestore.instance.collection('freeDrivers').doc(uid).get();
+      if (freeSnap.exists) {
+        var userData = freeSnap.data()!;
+        if (userData['status'] == 'approved') {
           String config = userData['vehicleConfig'] ?? 'motorcycleConfig';
           await _saveVehicleInfo(config);
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const FreeDriverHomeScreen()),
-          );
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const FreeDriverHomeScreen()),
+            );
+          }
+          return;
         } else {
-          // هنا سيتم توجيه مندوب الشركة والمدير لاحقاً
-          _navigateToHome(userData['role'] ?? 'user');
+          await FirebaseAuth.instance.signOut();
+          _showError("❌ حسابك قيد المراجعة أو غير مفعل.");
+          return;
         }
-      } else {
-        await FirebaseAuth.instance.signOut();
-        _showError("❌ حسابك قيد المراجعة أو غير مفعل.");
       }
+
+      // 3. فحص هل هو مدير (managers)
+      var managerSnap = await FirebaseFirestore.instance.collection('managers').doc(uid).get();
+      if (managerSnap.exists) {
+         _navigateToHome("مدير نظام"); // سنقوم بإنشاء واجهة المدير لاحقاً
+         return;
+      }
+
+      // إذا لم يوجد في أي كولكشن
+      _showError("لم يتم العثور على صلاحيات لهذا الحساب");
+
     } on FirebaseAuthException catch (e) {
-      _showError("فشل الدخول: تأكد من البيانات");
+      _showError("فشل الدخول: تأكد من رقم الهاتف وكلمة المرور");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -102,7 +123,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   children: [
                     SizedBox(height: 3.h),
-                    // أيقونة معدلة الحجم لتوفير مساحة
                     Container(
                       padding: const EdgeInsets.all(15),
                       decoration: BoxDecoration(
@@ -116,14 +136,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: TextStyle(fontSize: 22.sp, fontWeight: FontWeight.w900, color: Colors.black87)),
                     Text("سجل دخولك لبدء العمل",
                         style: TextStyle(fontSize: 14.sp, color: Colors.grey[600])),
-                    
                     SizedBox(height: 4.h),
-                    
                     _buildInput(_phoneController, "رقم الهاتف", Icons.phone, type: TextInputType.phone),
                     _buildInput(_passwordController, "كلمة المرور", Icons.lock, isPass: true),
-                    
                     SizedBox(height: 1.h),
-                    
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.black87,
@@ -135,7 +151,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Text("دخول للنظام",
                           style: TextStyle(color: Colors.white, fontSize: 16.sp, fontWeight: FontWeight.bold)),
                     ),
-                    
                     SizedBox(height: 2.h),
                     TextButton(
                       onPressed: () => Navigator.pushNamed(context, '/register'),
