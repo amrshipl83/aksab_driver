@@ -1,5 +1,5 @@
-import 'dart:convert'; // مضافة لدعم json.encode
-import 'package:http/http.dart' as http; // مضافة للربط مع Lambda
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -26,32 +26,45 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     _handleLocation();
   }
 
-  // دالة إرسال الإشعار المباشر عبر Lambda API الخاصة بك
+  // الدالة المحدثة: تستخرج الـ ARN أولاً ثم ترسل الإشعار عبر Lambda
   Future<void> _notifyUserOrderAccepted(String targetUserId, String orderId) async {
     const String lambdaUrl = 'https://9ayce138ig.execute-api.us-east-1.amazonaws.com/V1/nofiction';
-    
-    // محاولة جلب اسم المندوب من Firestore قبل الإرسال (اختياري لتحسين الرسالة)
-    String driverDisplayName = "مندوب أكسب"; 
+
     try {
+      // 1. جلب الـ ARN من كولكشن UserEndpoints (نفس منطق صفحة التتبع)
+      var endpointSnap = await FirebaseFirestore.instance
+          .collection('UserEndpoints')
+          .doc(targetUserId)
+          .get();
+
+      if (!endpointSnap.exists || endpointSnap.data()?['endpointArn'] == null) {
+        debugPrint("❌ Notification Cancelled: No endpointArn found for customer");
+        return;
+      }
+
+      String customerArn = endpointSnap.data()!['endpointArn'];
+
+      // 2. محاولة جلب اسم المندوب (Fullname) لتحسين نص الرسالة
+      String driverDisplayName = "مندوب أكسب";
       final driverDoc = await FirebaseFirestore.instance.collection('freeDrivers').doc(_uid).get();
       if (driverDoc.exists) {
-        driverDisplayName = driverDoc.data()?['name'] ?? "مندوب أكسب";
+        driverDisplayName = driverDoc.data()?['fullname'] ?? driverDoc.data()?['name'] ?? "مندوب أكسب";
       }
-    } catch (_) {}
 
-    final payload = {
-      "userId": targetUserId, // الـ Lambda ستبحث بهذا المعرف في UserEndpoints
-      "title": "أسواق اكسب: طلبك في الطريق! 🚚",
-      "message": "أهلاً بك، المندوب [$driverDisplayName] وافق على طلبك وهو الآن قيد التنفيذ.",
-      "orderId": orderId,
-    };
+      // 3. تجهيز الحمولة بالـ ARN الموثق
+      final payload = {
+        "userId": customerArn, // إرسال الـ ARN هو مفتاح النجاح
+        "title": "أسواق اكسب: طلبك في الطريق! 🚚",
+        "message": "أهلاً بك، المندوب [$driverDisplayName] وافق على طلبك وهو الآن قيد التنفيذ.",
+        "orderId": orderId,
+      };
 
-    try {
       await http.post(
         Uri.parse(lambdaUrl),
         headers: {"Content-Type": "application/json"},
         body: json.encode(payload),
       );
+      debugPrint("🔔 Acceptance Notification Sent Successfully to ARN: $customerArn");
     } catch (e) {
       debugPrint("❌ Notification Lambda Error: $e");
     }
@@ -214,7 +227,6 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     double calculatedFromPercent = totalPrice * (serviceFeePercent / 100);
     double finalCommission = (calculatedFromPercent > minFee) ? calculatedFromPercent : minFee;
     double driverNet = totalPrice - finalCommission;
-
     bool canAcceptThisOrder = displayBalance >= finalCommission;
 
     return Container(
@@ -326,6 +338,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     if (uid == null) return;
 
     showDialog(context: context, barrierDismissible: false, builder: (c) => const Center(child: CircularProgressIndicator()));
+
     final orderRef = FirebaseFirestore.instance.collection('specialRequests').doc(orderId);
 
     try {
@@ -342,7 +355,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
         });
       });
 
-      // إرسال الإشعار للمشتري فور نجاح التحديث
+      // إرسال الإشعار للمشتري فور نجاح التحديث باستخدام الـ ARN
       if (customerUserId != null) {
         _notifyUserOrderAccepted(customerUserId, orderId);
       }
@@ -350,6 +363,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
       if (!mounted) return;
       Navigator.pop(context);
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => ActiveOrderScreen(orderId: orderId)));
+
     } catch (e) {
       if (!mounted) return;
       Navigator.pop(context);

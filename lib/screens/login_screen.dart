@@ -4,7 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'free_driver_home_screen.dart';
-import 'CompanyRepHomeScreen.dart'; // استيراد الصفحة الجديدة
+import 'CompanyRepHomeScreen.dart';
+import 'delivery_admin_dashboard.dart'; // استيراد صفحة الإدارة الجديدة
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -40,8 +41,8 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       String uid = userCredential.user!.uid;
-      
-      // 1. فحص هل هو مندوب شركة أولاً (deliveryReps)
+
+      // 1. فحص هل هو مندوب شركة (deliveryReps)
       var repSnap = await FirebaseFirestore.instance.collection('deliveryReps').doc(uid).get();
       if (repSnap.exists) {
         var userData = repSnap.data()!;
@@ -52,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
               MaterialPageRoute(builder: (context) => const CompanyRepHomeScreen()),
             );
           }
-          return; // الخروج من الدالة بعد التوجيه الناجح
+          return;
         } else {
           await FirebaseAuth.instance.signOut();
           _showError("❌ حساب المندوب غير مفعل. راجع الإدارة.");
@@ -81,27 +82,37 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
 
-      // 3. فحص هل هو مدير (managers)
+      // 3. فحص هل هو من طاقم الإدارة (managers)
       var managerSnap = await FirebaseFirestore.instance.collection('managers').doc(uid).get();
       if (managerSnap.exists) {
-         _navigateToHome("مدير نظام"); // سنقوم بإنشاء واجهة المدير لاحقاً
-         return;
+        var managerData = managerSnap.data()!;
+        String role = managerData['role'] ?? '';
+
+        // السماح فقط لأدوار التوصيل بالدخول لهذا التطبيق
+        if (role == 'delivery_manager' || role == 'delivery_supervisor') {
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const DeliveryAdminDashboard()),
+            );
+          }
+          return;
+        } else {
+          await FirebaseAuth.instance.signOut();
+          _showError("❌ هذا التطبيق مخصص لإدارة التوصيل فقط.");
+          return;
+        }
       }
 
       // إذا لم يوجد في أي كولكشن
       _showError("لم يتم العثور على صلاحيات لهذا الحساب");
+      await FirebaseAuth.instance.signOut();
 
     } on FirebaseAuthException catch (e) {
       _showError("فشل الدخول: تأكد من رقم الهاتف وكلمة المرور");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  void _navigateToHome(String role) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text("مرحباً بك.. دورك: $role",
-            style: TextStyle(fontSize: 14.sp))));
   }
 
   void _showError(String msg) {
@@ -113,6 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ... نفس كود الـ UI الموجود لديك بدون تغيير ...
     return Scaffold(
       backgroundColor: Colors.white,
       body: _isLoading

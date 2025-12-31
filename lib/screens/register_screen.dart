@@ -34,11 +34,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       String collectionName;
+      // الحفاظ على نفس منطق توزيع الكولكشنز دون تغيير في القديم
       if (_selectedRole == 'free_driver') {
         collectionName = 'pendingFreeDrivers';
       } else if (_selectedRole == 'delivery_rep') {
         collectionName = 'pendingReps';
       } else {
+        // الأدوار الإدارية (مدير ومشرف) تذهب لكولكشن pendingManagers
         collectionName = 'pendingManagers';
       }
 
@@ -47,7 +49,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'email': smartEmail,
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
-        'role': _selectedRole,
+        'role': _selectedRole, // سيحفظ delivery_manager أو delivery_supervisor بدقة
         'vehicleConfig': _selectedRole == 'free_driver' ? _vehicleConfig : 'none',
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
@@ -73,7 +75,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.orange))
-          : SafeArea( // إضافة مساحة آمنة
+          : SafeArea(
               child: SingleChildScrollView(
                 padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 2.h),
                 child: Form(
@@ -83,7 +85,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       Text(
                         "انضم لعائلة أكسب",
                         style: TextStyle(
-                          fontSize: 24.sp, // تكبير العنوان
+                          fontSize: 24.sp,
                           color: Colors.orange[900],
                           fontWeight: FontWeight.bold,
                         ),
@@ -92,7 +94,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       Text(
                         "سجل بياناتك وسيتم مراجعتها خلال 24 ساعة",
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 13.sp, color: Colors.grey[600]), // تكبير النص الفرعي
+                        style: TextStyle(fontSize: 13.sp, color: Colors.grey[600]),
                       ),
                       SizedBox(height: 4.h),
                       _buildInput(_nameController, "الاسم الكامل كما في البطاقة", Icons.person),
@@ -104,19 +106,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         alignment: Alignment.centerRight,
                         child: Text(
                           "نوع الانضمام:",
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.sp, color: Colors.black87), // تكبير الخط
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.sp, color: Colors.black87),
                         ),
                       ),
                       SizedBox(height: 2.h),
+                      
+                      // خيارات المناديب (كما هي)
                       _roleOption("مندوب توصيل حر (امتلك مركبة)", "free_driver"),
                       if (_selectedRole == 'free_driver') _buildVehiclePicker(),
                       _roleOption("مندوب تحصيل (موظف بشركة)", "delivery_rep"),
-                      _roleOption("إدارة / مدير تحصيل", "delivery_manager"),
+                      
+                      // إضافة التفرقة بين المشرف والمدير (نفس استايل الـ HTML)
+                      _roleOption("مشرف تحصيل (إشراف ميداني)", "delivery_supervisor"),
+                      _roleOption("مدير تحصيل (إدارة النظام)", "delivery_manager"),
+
                       SizedBox(height: 5.h),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.black87,
-                          minimumSize: Size(100.w, 8.h), // زيادة طول الزر لراحة الضغط
+                          minimumSize: Size(100.w, 8.h),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                         ),
                         onPressed: _handleRegister,
@@ -125,7 +133,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           style: TextStyle(color: Colors.white, fontSize: 16.sp, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      SizedBox(height: 4.h), // مساحة إضافية في الأسفل
+                      SizedBox(height: 4.h),
                     ],
                   ),
                 ),
@@ -137,7 +145,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildVehiclePicker() {
     return Container(
       margin: EdgeInsets.symmetric(vertical: 2.h),
-      padding: const EdgeInsets.all(20), // زيادة الحشو الداخلي
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.orange[50],
         borderRadius: BorderRadius.circular(20),
@@ -153,7 +161,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           SizedBox(height: 1.h),
           DropdownButtonFormField<String>(
             value: _vehicleConfig,
-            isExpanded: true, // لضمان شغل المساحة بالكامل
+            isExpanded: true,
             dropdownColor: Colors.orange[50],
             style: TextStyle(fontSize: 14.sp, color: Colors.black, fontWeight: FontWeight.w500),
             decoration: const InputDecoration(border: InputBorder.none),
@@ -173,7 +181,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Theme(
       data: Theme.of(context).copyWith(unselectedWidgetColor: Colors.grey),
       child: RadioListTile(
-        title: Text(title, style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)), // تكبير خط الخيارات
+        title: Text(title, style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
         value: value,
         groupValue: _selectedRole,
         onChanged: (v) => setState(() => _selectedRole = v.toString()),
@@ -191,11 +199,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         obscureText: isPass ? _obscurePassword : false,
         keyboardType: type,
         textAlign: TextAlign.right,
-        style: TextStyle(fontSize: 15.sp), // تكبير خط الكتابة داخل الحقل
+        style: TextStyle(fontSize: 15.sp),
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(fontSize: 13.sp, color: Colors.grey[700]),
-          contentPadding: EdgeInsets.symmetric(vertical: 2.h, horizontal: 5.w), // زيادة مساحة الحقل
+          contentPadding: EdgeInsets.symmetric(vertical: 2.h, horizontal: 5.w),
           prefixIcon: Icon(icon, color: Colors.orange[900], size: 20.sp),
           suffixIcon: isPass
               ? IconButton(
@@ -231,7 +239,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         content: Text(
           "تم استلام طلبك بنجاح!\nسيتم مراجعة البيانات وتفعيل الحساب قريباً.",
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold), // تكبير خط الرسالة
+          style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold),
         ),
         actions: [
           Center(
