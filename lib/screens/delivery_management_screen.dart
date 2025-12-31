@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// تصحيح: المكتبة تُنادى هكذا طالما هي latlong2 في pubspec
-import 'package:latlong2/latlong2.dart'; 
+// التعديل الصحيح بناءً على ملفات مشروعك
+import 'package:latlong2/latlong.dart'; 
 import 'package:sizer/sizer.dart';
 
 class DeliveryManagementScreen extends StatefulWidget {
@@ -48,7 +48,7 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // تصحيح: استخدام isEqualTo بدلاً من الصيغة النصية '=='
+    // تصحيح: استخدام isEqualTo بدلاً من '=='
     final snap = await FirebaseFirestore.instance
         .collection('managers')
         .where('uid', isEqualTo: user.uid)
@@ -92,7 +92,7 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
     if (role == 'delivery_manager') return true;
     if (geoJsonData == null || myAreas.isEmpty) return false;
 
-    // تأمين تحويل الأرقام لـ double
+    // تأمين تحويل الأرقام لـ double لضمان عدم حدوث Crash
     double lat = (locationData['lat'] as num).toDouble();
     double lng = (locationData['lng'] as num).toDouble();
     LatLng orderPoint = LatLng(lat, lng);
@@ -102,8 +102,13 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
           (f) => f['properties']['name'] == areaName, orElse: () => null);
 
       if (feature != null) {
-        List coords = feature['geometry']['coordinates'][0];
-        List<LatLng> polygon = coords.map<LatLng>((c) => LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble())).toList();
+        var geometry = feature['geometry'];
+        List coords = geometry['coordinates'][0];
+        
+        List<LatLng> polygon = coords.map<LatLng>((c) => 
+          LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble())
+        ).toList();
+        
         if (_isPointInPolygon(orderPoint, polygon)) return true;
       }
     }
@@ -158,8 +163,10 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text("طلب رقم: ${orderId.substring(0, 5)}", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.sp)),
-                                Text("${order['total']} ج.م", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12.sp)),
+                                Text("طلب رقم: ${orderId.substring(0, 5)}", 
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.sp)),
+                                Text("${order['total']} ج.م", 
+                                  style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12.sp)),
                               ],
                             ),
                             const Divider(),
@@ -173,7 +180,10 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
                                 child: ElevatedButton.icon(
                                   icon: const Icon(Icons.send),
                                   label: const Text("نقل للتوصيل"),
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.orange, 
+                                    foregroundColor: Colors.white
+                                  ),
                                   onPressed: () => _managerMoveToDelivery(orderId),
                                 ),
                               ),
@@ -206,7 +216,6 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
         DropdownButton<String>(
           isExpanded: true,
           hint: const Text("اختر مندوب من فريقك"),
-          // تصحيح: تحديد نوع الـ Items لتجنب خطأ Object/String
           items: myReps.map<DropdownMenuItem<String>>((rep) {
             return DropdownMenuItem<String>(
               value: rep['repCode'].toString(), 
@@ -232,7 +241,9 @@ class _DeliveryManagementScreenState extends State<DeliveryManagementScreen> {
     });
     await FirebaseFirestore.instance.collection('waitingdelivery').doc(id).set(data);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("تم الإسناد للمندوب ${rep['fullname']}")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("تم الإسناد للمندوب ${rep['fullname']}"))
+      );
     }
   }
 }
