@@ -1,3 +1,5 @@
+import 'dart:convert'; // مضافة لدعم json.encode
+import 'package:http/http.dart' as http; // مضافة للربط مع Lambda
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,7 +8,7 @@ import 'package:sizer/sizer.dart';
 import 'active_order_screen.dart';
 
 class AvailableOrdersScreen extends StatefulWidget {
-  final String vehicleType; // مثل "motorcycleConfig" أو "jumboConfig"
+  final String vehicleType;
   const AvailableOrdersScreen({super.key, required this.vehicleType});
 
   @override
@@ -22,6 +24,37 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
   void initState() {
     super.initState();
     _handleLocation();
+  }
+
+  // دالة إرسال الإشعار المباشر عبر Lambda API الخاصة بك
+  Future<void> _notifyUserOrderAccepted(String targetUserId, String orderId) async {
+    const String lambdaUrl = 'https://9ayce138ig.execute-api.us-east-1.amazonaws.com/V1/nofiction';
+    
+    // محاولة جلب اسم المندوب من Firestore قبل الإرسال (اختياري لتحسين الرسالة)
+    String driverDisplayName = "مندوب أكسب"; 
+    try {
+      final driverDoc = await FirebaseFirestore.instance.collection('freeDrivers').doc(_uid).get();
+      if (driverDoc.exists) {
+        driverDisplayName = driverDoc.data()?['name'] ?? "مندوب أكسب";
+      }
+    } catch (_) {}
+
+    final payload = {
+      "userId": targetUserId, // الـ Lambda ستبحث بهذا المعرف في UserEndpoints
+      "title": "أسواق اكسب: طلبك في الطريق! 🚚",
+      "message": "أهلاً بك، المندوب [$driverDisplayName] وافق على طلبك وهو الآن قيد التنفيذ.",
+      "orderId": orderId,
+    };
+
+    try {
+      await http.post(
+        Uri.parse(lambdaUrl),
+        headers: {"Content-Type": "application/json"},
+        body: json.encode(payload),
+      );
+    } catch (e) {
+      debugPrint("❌ Notification Lambda Error: $e");
+    }
   }
 
   Future<void> _handleLocation() async {
@@ -77,7 +110,6 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
             : 50.0;
 
         return StreamBuilder<DocumentSnapshot>(
-          // جلب الإعدادات الهجينة من appSettings
           stream: FirebaseFirestore.instance.collection('appSettings').doc(widget.vehicleType).snapshots(),
           builder: (context, configSnap) {
             Map<String, dynamic> configData = {};
@@ -177,16 +209,12 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     String tripDist = _tripDistance(data);
     String distToMe = _distToPickup(data);
 
-    // الحسبة الهجينة (Hybrid Logic)
     double serviceFeePercent = (config['serviceFeePercentage'] ?? 10.0).toDouble();
     double minFee = (config['minServiceFee'] ?? 5.0).toDouble();
-    
     double calculatedFromPercent = totalPrice * (serviceFeePercent / 100);
-    // نأخذ القيمة الأكبر بين النسبة والحد الأدنى
     double finalCommission = (calculatedFromPercent > minFee) ? calculatedFromPercent : minFee;
     double driverNet = totalPrice - finalCommission;
 
-    // فحص الرصيد المتاح للتشغيل مقابل عمولة هذا الطلب تحديداً
     bool canAcceptThisOrder = displayBalance >= finalCommission;
 
     return Container(
@@ -241,8 +269,6 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                 const SizedBox(height: 12),
                 _infoRow(Icons.location_on, "إلى: ${data['dropoffAddress'] ?? 'نقطة التسليم'}", Colors.red[700]!),
                 const SizedBox(height: 20),
-                
-                // تفاصيل العمولة الهجينة للتوضيح للمندوب
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(15)),
@@ -251,12 +277,11 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     children: [
                       Icon(Icons.info_outline, size: 14.sp, color: Colors.orange[900]),
                       const SizedBox(width: 8),
-                      Text("عمولة المنصة المحجوزة: ${finalCommission.toStringAsFixed(1)} ج.م", 
-                        style: TextStyle(fontSize: 11.sp, color: Colors.orange[900], fontWeight: FontWeight.bold)),
+                      Text("عمولة المنصة المحجوزة: ${finalCommission.toStringAsFixed(1)} ج.م",
+                          style: TextStyle(fontSize: 11.sp, color: Colors.orange[900], fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
-                
                 const SizedBox(height: 25),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -265,9 +290,9 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     elevation: canAcceptThisOrder ? 5 : 0,
                   ),
-                  onPressed: canAcceptThisOrder ? () => _acceptOrder(doc.id, finalCommission) : () {
+                  onPressed: canAcceptThisOrder ? () => _acceptOrder(doc.id, finalCommission, data['userId']) : () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(backgroundColor: Colors.red, content: Text("رصيدك الحالي لا يغطي عمولة الطلب (${finalCommission.toStringAsFixed(1)} ج.م)"))
+                        SnackBar(backgroundColor: Colors.red, content: Text("رصيدك الحالي لا يغطي عمولة الطلب (${finalCommission.toStringAsFixed(1)} ج.م)"))
                     );
                   },
                   child: Text(canAcceptThisOrder ? "قبول الطلب فوراً" : "اشحن المحفظة للقبول",
@@ -296,7 +321,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
     );
   }
 
-  Future<void> _acceptOrder(String orderId, double commissionAmount) async {
+  Future<void> _acceptOrder(String orderId, double commissionAmount, String? customerUserId) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
@@ -313,9 +338,15 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
           'status': 'accepted',
           'driverId': uid,
           'acceptedAt': FieldValue.serverTimestamp(),
-          'commissionAmount': commissionAmount, // حفظ العمولة المحسوبة في الطلب
+          'commissionAmount': commissionAmount,
         });
       });
+
+      // إرسال الإشعار للمشتري فور نجاح التحديث
+      if (customerUserId != null) {
+        _notifyUserOrderAccepted(customerUserId, orderId);
+      }
+
       if (!mounted) return;
       Navigator.pop(context);
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => ActiveOrderScreen(orderId: orderId)));
