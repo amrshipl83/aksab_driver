@@ -10,7 +10,7 @@ import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/free_driver_home_screen.dart';
 import 'screens/CompanyRepHomeScreen.dart';
-import 'screens/delivery_admin_dashboard.dart'; // إضافة صفحة الإدارة
+import 'screens/delivery_admin_dashboard.dart'; // صفحة لوحة التحكم
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,7 +44,7 @@ class AksabDriverApp extends StatelessWidget {
             '/register': (context) => RegisterScreen(),
             '/free_home': (context) => const FreeDriverHomeScreen(),
             '/company_home': (context) => const CompanyRepHomeScreen(),
-            '/admin_dashboard': (context) => const DeliveryAdminDashboard(), // المسار الجديد
+            '/admin_dashboard': (context) => const DeliveryAdminDashboard(),
           },
         );
       },
@@ -58,69 +58,69 @@ class AuthWrapper extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+
         if (snapshot.hasData) {
           final uid = snapshot.data!.uid;
 
-          // المسار 1: فحص مناديب الشركة (deliveryReps)
-          return FutureBuilder<DocumentSnapshot>(
-            future: FirebaseFirestore.instance.collection('deliveryReps').doc(uid).get(),
-            builder: (context, repSnap) {
-              if (repSnap.connectionState == ConnectionState.waiting) {
+          // فحص الأدوار بالتتابع (مندوب شركة -> مندوب حر -> طاقم إدارة)
+          return FutureBuilder<Map<String, dynamic>?>(
+            future: _getUserRoleAndData(uid),
+            builder: (context, roleSnapshot) {
+              if (roleSnapshot.connectionState == ConnectionState.waiting) {
                 return const Scaffold(body: Center(child: CircularProgressIndicator()));
               }
 
-              if (repSnap.hasData && repSnap.data!.exists) {
-                var data = repSnap.data!.data() as Map<String, dynamic>;
-                if (data['status'] == 'approved') {
+              final userData = roleSnapshot.data;
+              if (userData != null) {
+                final String type = userData['type'];
+                final String status = userData['status'] ?? '';
+
+                if (type == 'deliveryRep' && status == 'approved') {
                   return const CompanyRepHomeScreen();
+                } else if (type == 'freeDriver' && status == 'approved') {
+                  return const FreeDriverHomeScreen();
+                } else if (type == 'manager') {
+                  String role = userData['role'] ?? '';
+                  if (role == 'delivery_manager' || role == 'delivery_supervisor') {
+                    return const DeliveryAdminDashboard();
+                  }
                 }
               }
 
-              // المسار 2: فحص المناديب الأحرار (freeDrivers)
-              return FutureBuilder<DocumentSnapshot>(
-                future: FirebaseFirestore.instance.collection('freeDrivers').doc(uid).get(),
-                builder: (context, freeSnap) {
-                  if (freeSnap.connectionState == ConnectionState.waiting) {
-                    return const Scaffold(body: Center(child: CircularProgressIndicator()));
-                  }
-
-                  if (freeSnap.hasData && freeSnap.data!.exists) {
-                    var data = freeSnap.data!.data() as Map<String, dynamic>;
-                    if (data['status'] == 'approved') {
-                      return const FreeDriverHomeScreen();
-                    }
-                  }
-
-                  // المسار 3: فحص طاقم الإدارة (managers)
-                  return FutureBuilder<DocumentSnapshot>(
-                    future: FirebaseFirestore.instance.collection('managers').doc(uid).get(),
-                    builder: (context, managerSnap) {
-                      if (managerSnap.connectionState == ConnectionState.waiting) {
-                        return const Scaffold(body: Center(child: CircularProgressIndicator()));
-                      }
-
-                      if (managerSnap.hasData && managerSnap.data!.exists) {
-                        var data = managerSnap.data!.data() as Map<String, dynamic>;
-                        String role = data['role'] ?? '';
-                        // التأكد من أن الدور هو إدارة توصيل (مدير أو مشرف)
-                        if (role == 'delivery_manager' || role == 'delivery_supervisor') {
-                          return const DeliveryAdminDashboard();
-                        }
-                      }
-
-                      // إذا لم يتم العثور عليه في أي مكان أو غير مقبول، نخرجه ونعيده لصفحة الدخول
-                      FirebaseAuth.instance.signOut();
-                      return const LoginScreen();
-                    },
-                  );
-                },
-              );
+              // إذا لم يتطابق مع أي دور أو غير مقبول
+              return const LoginScreen();
             },
           );
         }
+
         return const LoginScreen();
       },
     );
+  }
+
+  // دالة مساعدة لفحص الكولكشنز الثلاثة والعثور على المستخدم
+  Future<Map<String, dynamic>?> _getUserRoleAndData(String uid) async {
+    // 1. فحص مناديب الشركة
+    var repDoc = await FirebaseFirestore.instance.collection('deliveryReps').doc(uid).get();
+    if (repDoc.exists) return {...repDoc.data()!, 'type': 'deliveryRep'};
+
+    // 2. فحص المناديب الأحرار
+    var freeDoc = await FirebaseFirestore.instance.collection('freeDrivers').doc(uid).get();
+    if (freeDoc.exists) return {...freeDoc.data()!, 'type': 'freeDriver'};
+
+    // 3. فحص المديرين (باستخدام الاستعلام عن الـ uid لأن الـ doc ID قد يكون مختلفاً)
+    var managerSnap = await FirebaseFirestore.instance
+        .collection('managers')
+        .where('uid', isEqualTo: uid)
+        .get();
+    if (managerSnap.docs.isNotEmpty) {
+      return {...managerSnap.docs.first.data(), 'type': 'manager'};
+    }
+
+    return null;
   }
 }
 

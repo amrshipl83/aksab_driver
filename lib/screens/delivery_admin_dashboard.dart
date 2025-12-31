@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:sizer/sizer.dart';
+// استدعاء الصفحة الجديدة
+import 'delivery_management_screen.dart'; 
 
 class DeliveryAdminDashboard extends StatefulWidget {
   const DeliveryAdminDashboard({super.key});
@@ -29,8 +31,6 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
 
   Future<void> _checkAuthAndLoadData() async {
     try {
-      // 1. التحقق من الدور في كولكشن managers
-      // تم التصحيح هنا ليعمل بأسلوب Flutter
       var managerSnap = await FirebaseFirestore.instance
           .collection('managers')
           .where('uid', isEqualTo: _uid)
@@ -40,12 +40,11 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
         var doc = managerSnap.docs.first;
         _userData = doc.data();
         String role = _userData!['role'];
-        String managerDocId = doc.id; 
+        String managerDocId = doc.id;
 
-        // 2. تحميل البيانات بناءً على الصلاحيات
         await _loadStats(role, managerDocId);
       }
-      
+
       if (mounted) setState(() => _isLoading = false);
     } catch (e) {
       debugPrint("Dashboard Error: $e");
@@ -57,27 +56,23 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
     Query repsQuery = FirebaseFirestore.instance.collection('deliveryReps');
 
     if (role == 'delivery_supervisor') {
-      // تم التصحيح هنا باستخدام isEqualTo
       var myReps = await repsQuery.where('supervisorId', isEqualTo: managerDocId).get();
       _totalReps = myReps.size;
 
       if (myReps.docs.isNotEmpty) {
         List<String> repCodes = myReps.docs.map((d) => d['repCode'] as String).toList();
-        // فلترة الطلبات بواسطة أكواد المناديب
         ordersQuery = ordersQuery.where('buyer.repCode', whereIn: repCodes);
       } else {
-        return; 
+        return;
       }
     } else {
-      // المدير يرى الكل
       var allReps = await repsQuery.get();
       _totalReps = allReps.size;
     }
 
-    // جلب الطلبات وحساب الإجماليات
     var ordersSnap = await ordersQuery.get();
     _totalOrders = ordersSnap.size;
-    
+
     double salesSum = 0;
     double ratingsSum = 0;
     int ratedCount = 0;
@@ -112,8 +107,8 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("مرحباً بك، ${_userData?['fullname'] ?? ''}", 
-              style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
+            Text("مرحباً بك، ${_userData?['fullname'] ?? ''}",
+                style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
             SizedBox(height: 2.h),
             Expanded(
               child: GridView.count(
@@ -142,7 +137,7 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1), // تصحيح لون الظل
+            color: Colors.black.withOpacity(0.1),
             blurRadius: 8,
           )
         ],
@@ -153,7 +148,7 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
           Icon(icon, color: color, size: 28.sp),
           SizedBox(height: 1.h),
           Text(title, style: TextStyle(fontSize: 10.sp, color: Colors.grey[600])),
-          Text(value, style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold, color: color)),
+          Text(value, style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold, color: color), textAlign: TextAlign.center),
         ],
       ),
     );
@@ -167,8 +162,16 @@ class _DeliveryAdminDashboardState extends State<DeliveryAdminDashboard> {
             decoration: const BoxDecoration(color: Color(0xFF2F3542)),
             child: Center(child: Text("أكسب - إدارة التوصيل", style: TextStyle(color: Colors.white, fontSize: 18.sp))),
           ),
-          _drawerItem(Icons.analytics, "تقارير الطلبات", () {}),
-          _drawerItem(Icons.people, "إدارة المناديب", () {}),
+          // ربط صفحة تقارير الطلبات الجغرافية
+          _drawerItem(Icons.analytics, "تقارير الطلبات", () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const DeliveryManagementScreen()),
+            );
+          }),
+          _drawerItem(Icons.people, "إدارة المناديب", () {
+             // مكان لإدارة المناديب لاحقاً
+          }),
           if (_userData?['role'] == 'delivery_manager')
             _drawerItem(Icons.map, "مناطق المشرفين", () {}),
           const Divider(),
