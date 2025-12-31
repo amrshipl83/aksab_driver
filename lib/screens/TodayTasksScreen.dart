@@ -38,9 +38,7 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
     }
   }
 
-  // --- منطق الخريطة والمسار (Mapbox Logic) ---
   void _showRouteMap(Map customerLoc, String address) async {
-    // إحداثيات افتراضية للمندوب (يُفضل جلبها من Geolocator لاحقاً)
     LatLng agentPos = const LatLng(30.0444, 31.2357); 
     LatLng customerPos = LatLng(customerLoc['lat'], customerLoc['lng']);
 
@@ -64,12 +62,10 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
                     initialZoom: 13,
                   ),
                   children: [
-                    // طبقة البلاطات من Mapbox
                     TileLayer(
                       urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token=$_mapboxToken',
                       additionalOptions: {'accessToken': _mapboxToken},
                     ),
-                    // رسم الماركرز
                     MarkerLayer(
                       markers: [
                         Marker(point: agentPos, child: const Icon(Icons.my_location, color: Colors.blue, size: 30)),
@@ -110,7 +106,6 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
     );
   }
 
-  // --- تصميم الكروت الرئيسية ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -124,7 +119,7 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
         : StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('waitingdelivery')
-                .where('repCode', '==', _repCode)
+                .where('repCode', isEqualTo: _repCode) // تم التصحيح هنا: استخدام isEqualTo
                 .snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
@@ -192,7 +187,6 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
     );
   }
 
-  // --- نفس منطق نقل البيانات في الـ HTML بالضبط ---
   Future<void> _handleStatus(String docId, Map<String, dynamic> data, String status) async {
     String targetColl = (status == 'delivered') ? 'deliveredorders' : 'falseorder';
     try {
@@ -203,9 +197,30 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
         'handledByRepId': _repCode
       });
       await FirebaseFirestore.instance.collection('waitingdelivery').doc(docId).delete();
+      
+      // إرسال الإشعار بعد التحديث الناجح
+      _sendNotification(status, data['buyer']['name'] ?? "عميل");
+
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("تم التحديث بنجاح")));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: $e")));
+    }
+  }
+
+  // دالة إرسال الإشعار لتقليد المستمع
+  Future<void> _sendNotification(String status, String customerName) async {
+    try {
+      await http.post(
+        Uri.parse(_lambdaUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "targetArn": "arn:aws:sns:us-east-1:32660558108:AksabNotification", // تأكد من الـ ARN الصحيح
+          "title": status == 'delivered' ? "تم التسليم بنجاح! ✅" : "فشل في التسليم ❌",
+          "message": "المندوب قام بتحديث حالة طلب $customerName"
+        }),
+      );
+    } catch (e) {
+      debugPrint("Notification Error: $e");
     }
   }
 }
