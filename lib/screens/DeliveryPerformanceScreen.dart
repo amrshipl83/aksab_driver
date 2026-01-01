@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sizer/sizer.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'FinancialSettlementScreen.dart'; // تأكد من وجود هذا الملف في نفس المجلد
 
 class DeliveryPerformanceScreen extends StatefulWidget {
-  final String repId;    // الـ Document ID في Firebase
-  final String repCode;  // كود المندوب المستخدم في الربط
-  final String repName;  // اسم المندوب للعرض
+  final String repId;    
+  final String repCode;  
+  final String repName;  
 
   const DeliveryPerformanceScreen({
     super.key,
@@ -28,10 +29,17 @@ class _DeliveryPerformanceScreenState extends State<DeliveryPerformanceScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FA),
       appBar: AppBar(
-        title: Text("أداء المندوب: ${widget.repName}"),
+        title: Text("أداء: ${widget.repName}"),
         centerTitle: true,
         backgroundColor: const Color(0xFF007BFF),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.account_balance_wallet, color: Colors.white),
+            onPressed: () => _navigateToSettlement(),
+            tooltip: "تسوية مالية",
+          )
+        ],
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(12.sp),
@@ -39,9 +47,11 @@ class _DeliveryPerformanceScreenState extends State<DeliveryPerformanceScreen> {
           children: [
             _buildDateFilter(),
             SizedBox(height: 15.sp),
-            _buildCurrentLiveStatus(), // حالة المهام المتبقية الآن
+            _buildCurrentLiveStatus(), // حالة waitingdelivery
             SizedBox(height: 15.sp),
-            _buildHistoricalPerformance(), // إحصائيات الفترة المختارة
+            _buildHistoricalPerformance(), // إحصائيات delivered & false orders
+            SizedBox(height: 20.sp),
+            _buildSettlementButton(),
           ],
         ),
       ),
@@ -83,19 +93,19 @@ class _DeliveryPerformanceScreenState extends State<DeliveryPerformanceScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 9.sp)),
-          Text("${date.day}-${date.month}-${date.year}", 
-               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.sp)),
+          Text("${date.day}-${date.month}-${date.year}",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.sp)),
         ],
       ),
     );
   }
 
-  // حالة المهام المتبقية حالياً (Real-time من waitingdelivery)
+  // حالة المهام الحالية من كولكشن waitingdelivery
   Widget _buildCurrentLiveStatus() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('waitingdelivery')
-          .where('deliveryRepId', isEqualTo: widget.repCode)
+          .where('repCode', isEqualTo: widget.repCode)
           .snapshots(),
       builder: (context, snapshot) {
         int remaining = snapshot.hasData ? snapshot.data!.docs.length : 0;
@@ -109,12 +119,12 @@ class _DeliveryPerformanceScreenState extends State<DeliveryPerformanceScreen> {
           ),
           child: Row(
             children: [
-              Icon(isDone ? Icons.check_circle : Icons.pending_actions, 
-                   color: isDone ? Colors.green : Colors.orange[800]),
+              Icon(isDone ? Icons.check_circle : Icons.pending_actions,
+                  color: isDone ? Colors.green : Colors.orange[800]),
               SizedBox(width: 10.sp),
               Expanded(
                 child: Text(
-                  isDone ? "أنهى جميع المهام المسندة ✅" : "لا تزال هناك $remaining مهام قيد التنفيذ",
+                  isDone ? "أنهى جميع مهام اليوم ✅" : "متبقي $remaining مهام قيد التنفيذ حالياً",
                   style: TextStyle(fontWeight: FontWeight.bold, color: isDone ? Colors.green[800] : Colors.orange[900]),
                 ),
               ),
@@ -125,49 +135,66 @@ class _DeliveryPerformanceScreenState extends State<DeliveryPerformanceScreen> {
     );
   }
 
-  // إحصائيات الأداء للفترة المختارة
+  // الأداء التاريخي بدمج كولكشن الناجح والفاشل
   Widget _buildHistoricalPerformance() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('orders')
-          .where('deliveryRepCode', isEqualTo: widget.repCode)
-          .where('orderDate', isGreaterThanOrEqualTo: startDate)
-          .where('orderDate', isLessThanOrEqualTo: endDate.add(const Duration(days: 1)))
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return const CircularProgressIndicator();
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return Center(child: Padding(
-            padding: EdgeInsets.only(top: 20.sp),
-            child: const Text("لا توجد بيانات لهذه الفترة"),
-          ));
-        }
+    return Column(
+      children: [
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('deliveredorders')
+              .where('repCode', isEqualTo: widget.repCode)
+              .where('timestamp', isGreaterThanOrEqualTo: startDate)
+              .where('timestamp', isLessThanOrEqualTo: endDate.add(const Duration(days: 1)))
+              .snapshots(),
+          builder: (context, delSnap) {
+            return StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('falseorder')
+                  .where('repCode', isEqualTo: widget.repCode)
+                  .where('timestamp', isGreaterThanOrEqualTo: startDate)
+                  .where('timestamp', isLessThanOrEqualTo: endDate.add(const Duration(days: 1)))
+                  .snapshots(),
+              builder: (context, failSnap) {
+                if (delSnap.connectionState == ConnectionState.waiting || failSnap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-        var docs = snapshot.data!.docs;
-        int delivered = docs.where((d) => d['status'] == 'delivered').length;
-        int failed = docs.where((d) => d['status'] == 'failed').length;
-        double totalCash = 0;
-        for (var d in docs.where((d) => d['status'] == 'delivered')) {
-          totalCash += (d['total'] ?? 0);
-        }
+                int success = delSnap.data?.docs.length ?? 0;
+                int failed = failSnap.data?.docs.length ?? 0;
+                double totalCash = 0;
 
-        return Column(
-          children: [
-            Row(
-              children: [
-                _kpiCard("تسليم ناجح", "$delivered", Icons.done_all, Colors.green),
-                _kpiCard("تسليم فاشل", "$failed", Icons.close, Colors.red),
-              ],
-            ),
-            SizedBox(height: 10.sp),
-            _wideKpiCard("إجمالي المبالغ المحصلة", "${totalCash.toStringAsFixed(2)} ج.م", Icons.payments, Colors.blue[900]!),
-            SizedBox(height: 20.sp),
-            Text("تحليل نسبة النجاح", style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.bold)),
-            SizedBox(height: 10.sp),
-            _buildPieChart(delivered, failed),
-          ],
-        );
-      },
+                for (var d in delSnap.data?.docs ?? []) {
+                  totalCash += (d['total'] ?? 0);
+                }
+
+                if (success == 0 && failed == 0) {
+                  return Padding(
+                    padding: EdgeInsets.only(top: 20.sp),
+                    child: const Text("لا توجد بيانات مسجلة لهذه الفترة"),
+                  );
+                }
+
+                return Column(
+                  children: [
+                    Row(
+                      children: [
+                        _kpiCard("تسليم ناجح", "$success", Icons.done_all, Colors.green),
+                        _kpiCard("تسليم فاشل", "$failed", Icons.close, Colors.red),
+                      ],
+                    ),
+                    SizedBox(height: 10.sp),
+                    _wideKpiCard("إجمالي التحصيل المالي", "${totalCash.toStringAsFixed(2)} ج.م", Icons.payments, Colors.blue[900]!),
+                    SizedBox(height: 20.sp),
+                    Text("تحليل نسبة النجاح", style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.bold)),
+                    SizedBox(height: 10.sp),
+                    _buildPieChart(success, failed),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -214,7 +241,7 @@ class _DeliveryPerformanceScreenState extends State<DeliveryPerformanceScreen> {
   Widget _buildPieChart(int success, int failed) {
     int total = success + failed;
     if (total == 0) return const SizedBox();
-    return Container(
+    return SizedBox(
       height: 200,
       child: PieChart(
         PieChartData(
@@ -223,19 +250,48 @@ class _DeliveryPerformanceScreenState extends State<DeliveryPerformanceScreen> {
           sections: [
             PieChartSectionData(
               value: success.toDouble(),
-              title: '${((success/total)*100).toStringAsFixed(0)}%',
+              title: '${((success / total) * 100).toStringAsFixed(0)}%',
               color: Colors.green,
               radius: 50,
               titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
             PieChartSectionData(
               value: failed.toDouble(),
-              title: '${((failed/total)*100).toStringAsFixed(0)}%',
+              title: '${((failed / total) * 100).toStringAsFixed(0)}%',
               color: Colors.red,
               radius: 50,
               titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettlementButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green[700],
+          padding: EdgeInsets.symmetric(vertical: 12.sp),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: () => _navigateToSettlement(),
+        icon: const Icon(Icons.account_balance_wallet, color: Colors.white),
+        label: const Text("تصفية الحساب (توريد كاش)", 
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+      ),
+    );
+  }
+
+  void _navigateToSettlement() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => FinancialSettlementScreen(
+          repCode: widget.repCode,
+          repName: widget.repName,
         ),
       ),
     );
