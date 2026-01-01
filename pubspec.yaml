@@ -51,3 +51,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/OSMB-bc319d822a17aa9ad1089fc05e7d4e752460f877.geojson
