@@ -20,7 +20,7 @@ class _DeliveryFleetScreenState extends State<DeliveryFleetScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String? userRole;
-  String? userDocId; 
+  String? userDocId;
   bool isLoadingRole = true;
 
   @override
@@ -84,6 +84,7 @@ class _DeliveryFleetScreenState extends State<DeliveryFleetScreen> {
             itemBuilder: (context, index) {
               var doc = snapshot.data!.docs[index];
               var data = doc.data() as Map<String, dynamic>;
+
               return _buildFleetCard(doc.id, data);
             },
           );
@@ -106,14 +107,13 @@ class _DeliveryFleetScreenState extends State<DeliveryFleetScreen> {
       child: Column(
         children: [
           ListTile(
-            // --- الربط بصفحة الأداء عند الضغط على الكارت ---
             onTap: () {
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => DeliveryPerformanceScreen(
                     repId: docId,
-                    repCode: data['repCode'] ?? docId, // للمشرف نستخدم الـ ID ككود مؤقت
+                    repCode: data['repCode'] ?? docId,
                     repName: data['fullname'] ?? 'غير مسمى',
                   ),
                 ),
@@ -180,15 +180,12 @@ class _DeliveryFleetScreenState extends State<DeliveryFleetScreen> {
           if (userRole == 'delivery_manager')
             Expanded(
               child: TextButton.icon(
-                // --- الانتقال لصفحة توزيع المناطق الجغرافية للمدير فقط ---
                 onPressed: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => ManagerGeoDistScreen(
-                        supervisorId: docId,
-                        supervisorName: data['fullname'] ?? "",
-                      ),
+                      // تم حذف الـ supervisorId والـ supervisorName لتطابق الكلاس ManagerGeoDistScreen
+                      builder: (context) => const ManagerGeoDistScreen(),
                     ),
                   );
                 },

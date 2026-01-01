@@ -3,8 +3,8 @@ import 'package:sizer/sizer.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert'; // ضروري لتحويل البيانات لـ JSON
-import 'TodayTasksScreen.dart'; // استيراد صفحة المهام
+import 'dart:convert';
+import 'TodayTasksScreen.dart';
 
 class CompanyRepHomeScreen extends StatefulWidget {
   const CompanyRepHomeScreen({super.key});
@@ -38,7 +38,6 @@ class _CompanyRepHomeScreenState extends State<CompanyRepHomeScreen> {
           _isLoading = false;
         });
 
-        // حفظ البيانات كـ JSON String لمحاكاة localStorage
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('userData', jsonEncode(data));
         await prefs.setString('userRole', 'delivery_rep');
@@ -61,8 +60,8 @@ class _CompanyRepHomeScreenState extends State<CompanyRepHomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
-        title: Text("لوحة التحكم", 
-          style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold, color: Colors.white)),
+        title: Text("لوحة التحكم",
+            style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold, color: Colors.white)),
         centerTitle: true,
         backgroundColor: const Color(0xFF2C3E50),
         elevation: 10,
@@ -136,8 +135,8 @@ class _CompanyRepHomeScreenState extends State<CompanyRepHomeScreen> {
       ),
       child: Column(
         children: [
-          Text("ملخص الحساب", 
-            style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold, color: Colors.blue[900])),
+          Text("ملخص الحساب",
+              style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold, color: Colors.blue[900])),
           const Divider(height: 25),
           _buildDetailRow(Icons.email, "البريد:", _repData?['email'] ?? "-"),
           _buildDetailRow(Icons.phone, "الهاتف:", _repData?['phone'] ?? "-"),
@@ -173,15 +172,19 @@ class _CompanyRepHomeScreenState extends State<CompanyRepHomeScreen> {
             elevation: 5,
           ),
           onPressed: () {
-            // التنقل لصفحة المهام
+            // التعديل الجوهري هنا لإصلاح خطأ البناء
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const TodayTasksScreen()),
+              MaterialPageRoute(
+                builder: (context) => TodayTasksScreen(
+                  repCode: _repData?['repCode'] ?? '',
+                ),
+              ),
             );
           },
           icon: Icon(Icons.assignment, color: Colors.white, size: 20.sp),
-          label: Text("مهام اليوم", 
-            style: TextStyle(fontSize: 15.sp, color: Colors.white, fontWeight: FontWeight.bold)),
+          label: Text("مهام اليوم",
+              style: TextStyle(fontSize: 15.sp, color: Colors.white, fontWeight: FontWeight.bold)),
         ),
         SizedBox(height: 2.h),
         OutlinedButton.icon(
@@ -194,8 +197,8 @@ class _CompanyRepHomeScreenState extends State<CompanyRepHomeScreen> {
             // سيتم ربط التقارير لاحقاً
           },
           icon: Icon(Icons.bar_chart, size: 18.sp, color: const Color(0xFF2C3E50)),
-          label: Text("عرض التقارير", 
-            style: TextStyle(fontSize: 14.sp, color: const Color(0xFF2C3E50), fontWeight: FontWeight.bold)),
+          label: Text("عرض التقارير",
+              style: TextStyle(fontSize: 14.sp, color: const Color(0xFF2C3E50), fontWeight: FontWeight.bold)),
         ),
       ],
     );
