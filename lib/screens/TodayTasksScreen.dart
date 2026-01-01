@@ -17,7 +17,7 @@ class TodayTasksScreen extends StatefulWidget {
 class _TodayTasksScreenState extends State<TodayTasksScreen> {
   final String _mapboxToken = 'pk.eyJ1IjoiYW1yc2hpcGwiLCJhIjoiY21lajRweGdjMDB0eDJsczdiemdzdXV6biJ9.E--si9vOB93NGcAq7uVgGw';
   final String _lambdaUrl = 'https://2soi345n94.execute-api.us-east-1.amazonaws.com/Prode/';
-  
+
   String? _repCode;
   bool _isLoadingRep = true;
 
@@ -29,17 +29,25 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
 
   Future<void> _loadRepCode() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    // البحث عن المندوب باستخدام الـ UID الخاص به لجلب الـ repCode
     final doc = await FirebaseFirestore.instance.collection('deliveryReps').doc(uid).get();
     if (doc.exists) {
-      setState(() {
-        _repCode = doc.data()?['repCode'];
-        _isLoadingRep = false;
-      });
+      if (mounted) {
+        setState(() {
+          _repCode = doc.data()?['repCode'];
+          _isLoadingRep = false;
+        });
+      }
+    } else {
+      if (mounted) setState(() => _isLoadingRep = false);
     }
   }
 
-  void _showRouteMap(Map customerLoc, String address) async {
-    LatLng agentPos = const LatLng(30.0444, 31.2357); 
+  void _showRouteMap(Map customerLoc, String address) {
+    // إحداثيات افتراضية للمندوب (يمكنك جلبها لاحقاً من الـ GPS اللحظي)
+    LatLng agentPos = const LatLng(31.2001, 29.9187); // إحداثيات في الإسكندرية كمثال
     LatLng customerPos = LatLng(customerLoc['lat'], customerLoc['lng']);
 
     showModalBottomSheet(
@@ -112,29 +120,38 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
       backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
         title: const Text("مهام اليوم"),
+        centerTitle: true,
         backgroundColor: const Color(0xFF007BFF),
       ),
-      body: _isLoadingRep 
-        ? const Center(child: CircularProgressIndicator())
-        : StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('waitingdelivery')
-                .where('repCode', isEqualTo: _repCode) // تم التصحيح هنا: استخدام isEqualTo
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-              
-              return ListView.builder(
-                padding: EdgeInsets.all(10.sp),
-                itemCount: snapshot.data!.docs.length,
-                itemBuilder: (context, index) {
-                  var data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
-                  var docId = snapshot.data!.docs[index].id;
-                  return _buildTaskCard(docId, data);
-                },
-              );
-            },
-          ),
+      body: _isLoadingRep
+          ? const Center(child: CircularProgressIndicator())
+          : _repCode == null
+              ? const Center(child: Text("لم يتم العثور على بيانات المندوب"))
+              : StreamBuilder<QuerySnapshot>(
+                  // تم التعديل هنا: البحث بـ deliveryRepId ليتطابق مع ما يرفعه المشرف
+                  stream: FirebaseFirestore.instance
+                      .collection('waitingdelivery')
+                      .where('deliveryRepId', isEqualTo: _repCode)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                      return const Center(child: Text("لا توجد مهام مسندة إليك اليوم"));
+                    }
+
+                    return ListView.builder(
+                      padding: EdgeInsets.all(10.sp),
+                      itemCount: snapshot.data!.docs.length,
+                      itemBuilder: (context, index) {
+                        var data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+                        var docId = snapshot.data!.docs[index].id;
+                        return _buildTaskCard(docId, data);
+                      },
+                    );
+                  },
+                ),
     );
   }
 
@@ -150,12 +167,12 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
           children: [
             _rowInfo("العميل", buyer['name'] ?? "-"),
             _rowInfo("العنوان", buyer['address'] ?? "-"),
-            _rowInfo("الإجمالي", "${data['total']?.toStringAsFixed(2)} ج.م", isTotal: true),
+            _rowInfo("الإجمالي", "${(data['total'] ?? 0).toStringAsFixed(2)} ج.م", isTotal: true),
             const Divider(),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _actionBtn(Icons.map, "المسار", Colors.grey[800]!, () => _showRouteMap(buyer['location'], buyer['address'])),
+                _actionBtn(Icons.map, "المسار", Colors.grey[800]!, () => _showRouteMap(buyer['location'], buyer['address'] ?? "بدون عنوان")),
                 _actionBtn(Icons.check_circle, "تم التسليم", Colors.green, () => _handleStatus(docId, data, 'delivered')),
                 _actionBtn(Icons.cancel, "فشل", Colors.red, () => _handleStatus(docId, data, 'failed')),
               ],
@@ -190,31 +207,37 @@ class _TodayTasksScreenState extends State<TodayTasksScreen> {
   Future<void> _handleStatus(String docId, Map<String, dynamic> data, String status) async {
     String targetColl = (status == 'delivered') ? 'deliveredorders' : 'falseorder';
     try {
-      await FirebaseFirestore.instance.collection(targetColl).add({
+      // 1. رفع الطلب للمجموعة النهائية (تم التسليم أو فشل)
+      await FirebaseFirestore.instance.collection(targetColl).doc(docId).set({
         ...data,
         'status': status,
-        'timestamp': FieldValue.serverTimestamp(),
+        'finishedAt': FieldValue.serverTimestamp(),
         'handledByRepId': _repCode
       });
-      await FirebaseFirestore.instance.collection('waitingdelivery').doc(docId).delete();
-      
-      // إرسال الإشعار بعد التحديث الناجح
-      _sendNotification(status, data['buyer']['name'] ?? "عميل");
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("تم التحديث بنجاح")));
+      // 2. تحديث الطلب الأصلي في مجموعة orders لمتابعة الحالة من قبل المدير
+      await FirebaseFirestore.instance.collection('orders').doc(docId).update({
+        'status': status,
+        'deliveryFinishedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 3. مسح الطلب من المهام اليومية (waitingdelivery)
+      await FirebaseFirestore.instance.collection('waitingdelivery').doc(docId).delete();
+
+      _sendNotification(status, data['buyer']?['name'] ?? "عميل");
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("تم التحديث بنجاح ✅")));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: $e")));
     }
   }
 
-  // دالة إرسال الإشعار لتقليد المستمع
   Future<void> _sendNotification(String status, String customerName) async {
     try {
       await http.post(
         Uri.parse(_lambdaUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "targetArn": "arn:aws:sns:us-east-1:32660558108:AksabNotification", // تأكد من الـ ARN الصحيح
+          "targetArn": "arn:aws:sns:us-east-1:32660558108:AksabNotification",
           "title": status == 'delivered' ? "تم التسليم بنجاح! ✅" : "فشل في التسليم ❌",
           "message": "المندوب قام بتحديث حالة طلب $customerName"
         }),
